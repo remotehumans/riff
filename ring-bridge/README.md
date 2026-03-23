@@ -22,7 +22,7 @@ Pair the ring with a wireless microphone (like a DJI wireless mic) and you can b
 
 The ring pretends to be a media controller (like headphone buttons). This daemon catches those signals before macOS turns them into volume/mute commands, and translates them into keyboard actions that coding agents understand.
 
-The voice recording toggle holds down the Option key, which apps like [Superwhisper](https://superwhisper.com/) use as a push-to-talk trigger. When you tap the ring, it starts recording. Tap again, it stops. Then press the right arrow to send your message.
+The voice recording toggle holds down the Option key, which voice-to-text apps use as a push-to-talk trigger. Works with [FluidVoice](https://fluidvoice.ai/), [Superwhisper](https://superwhisper.com/), [Whisper Flow](https://whisperflow.com/), [Handy](https://handyai.app/), and [Every's Monologue](https://every.to/monologue). When you tap the ring, it starts recording. Tap again, it stops. Then press the right arrow to send your message.
 
 ## Hardware
 
