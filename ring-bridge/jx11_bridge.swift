@@ -3,21 +3,90 @@ import CoreGraphics
 import IOKit
 import IOKit.hid
 
-// ABOUTME: JX-11 ring to keyboard bridge daemon for FluidVoice and Enter key.
-// ABOUTME: Uses IOKit HID for device-specific ring detection, CGEvent tap to block defaults.
+// ABOUTME: JX-11 ring to keyboard bridge daemon for voice AI interaction.
+// ABOUTME: Maps tap, swipes (X/Y axis), and short touch to keyboard/scroll events.
 
 // --- Strategy ---
 // IOKit HID Manager matches the ring by VendorID/ProductID (reliable across reconnects).
 // IOKit input value callbacks fire on ring events and synthesize Option/Enter keys.
 // CGEvent tap blocks the ring's default media key behavior using timing correlation:
-// if IOKit just saw a ring event within 100ms, the next type-14 CGEvent gets blocked.
+// if IOKit just saw a ring event within 150ms, the next type-14 CGEvent gets blocked.
+//
+// Threading: All callbacks and timers are scheduled on the main CFRunLoop.
+// RingBridge state is NOT thread-safe beyond this single-thread contract.
+// Only lastRingIOKitEventTime uses os_unfair_lock (shared between IOKit and CGEvent callbacks).
+
+// --- Constants ---
 
 let kJX11VendorID: Int = 0x05AC
 let kJX11ProductID: Int = 0x0220
+// Known serial number for the ring — reject unknown devices matching the same VID/PID
+let kJX11ExpectedName: String = "JX-11"
 
-// Timestamp of last IOKit ring event, used to correlate with CGEvent tap
+// HID usage pages
+let kConsumerControlPage: UInt32 = 0x0C
+let kDigitizerPage: UInt32 = 0x0D
+let kGenericDesktopPage: UInt32 = 0x01
+
+// HID usage IDs — Consumer Control
+let kUsageMute: UInt32 = 0xE2
+let kUsageVolDown: UInt32 = 0xEA
+let kUsageVolUp: UInt32 = 0xE9
+
+// HID usage IDs — Digitizer
+let kUsageInRange: UInt32 = 0x32
+
+// HID usage IDs — Generic Desktop
+let kUsageX: UInt32 = 0x30
+let kUsageY: UInt32 = 0x31
+
+// macOS virtual keycodes
+let kKeyCodeOption: CGKeyCode = 58
+let kKeyCodeReturn: CGKeyCode = 36
+let kKeyCodeDelete: CGKeyCode = 51
+let kKeyCodeEscape: CGKeyCode = 53
+
+// Timing thresholds (seconds)
+let kTapDebounce: TimeInterval = 0.3
+let kSwipeDebounce: TimeInterval = 0.5
+let kCorrelationWindow: TimeInterval = 0.15
+
+// Swipe gesture threshold (HID coordinate units, applies to both X and Y)
+let kSwipeThreshold: Int = 400
+
+// HID coordinate valid range (for input clamping, applies to both X and Y)
+let kSwipeCoordMin: Int = 0
+let kSwipeCoordMax: Int = 1023
+
+// Short touch detection: max duration (seconds) and max movement to count as a tap (not swipe)
+let kShortTouchMaxDuration: TimeInterval = 0.3
+let kShortTouchMaxMovement: Int = 100
+let kEscapeDebounce: TimeInterval = 0.5
+
+// Scroll lines per continuous scroll event during Y-axis swipe
+let kScrollAmount: Int32 = 3
+// Minimum Y coordinate change between scroll events (lower = more frequent, smoother)
+let kScrollStepThreshold: Int = 15
+
+// CGEvent type for system-defined (media) keys
+let kCGEventTypeSystemDefined: UInt32 = 14
+
+// --- Timestamp Formatter ---
+
+private let tsFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "HH:mm:ss"
+    return f
+}()
+
+func ts() -> String { tsFormatter.string(from: Date()) }
+
+// --- Timing Correlation ---
+// Shared between IOKit callbacks and CGEvent tap via os_unfair_lock.
+
 var lastRingIOKitEventTime: Date = .distantPast
 var ringIOKitLock = os_unfair_lock()
+
 
 func markRingIOKitEvent() {
     os_unfair_lock_lock(&ringIOKitLock)
@@ -29,7 +98,13 @@ func isRecentRingIOKitEvent() -> Bool {
     os_unfair_lock_lock(&ringIOKitLock)
     let elapsed = Date().timeIntervalSince(lastRingIOKitEventTime)
     os_unfair_lock_unlock(&ringIOKitLock)
-    return elapsed < 0.15  // 150ms correlation window
+    return elapsed < kCorrelationWindow
+}
+
+func clearRingIOKitEvent() {
+    os_unfair_lock_lock(&ringIOKitLock)
+    lastRingIOKitEventTime = .distantPast
+    os_unfair_lock_unlock(&ringIOKitLock)
 }
 
 // --- RingBridge ---
@@ -38,20 +113,31 @@ class RingBridge {
     var optionHeld = false
     var lastOptionTime: Date = .distantPast
     var lastEnterTime: Date = .distantPast
-
     var lastBackspaceTime: Date = .distantPast
 
-    // Swipe detection via IOKit Digitizer X (page 0x1, usage 0x30)
-    // Swipe right on ring (X decreases 700->100) = Enter
-    // Swipe left on ring (X increases 300->900) = Backspace
+    var lastEscapeTime: Date = .distantPast
+    var lastScrollTime: Date = .distantPast
+
+    // Swipe detection via IOKit Digitizer (page 0x01)
+    // X-axis (usage 0x30): swipe right on ring (X decreases) = Enter, swipe left (X increases) = Backspace
+    // Y-axis (usage 0x31): swipe down on ring (Y increases to 1200) = scroll down, swipe up (Y decreases to 0) = scroll up
+    // Note: physical direction on ring surface is opposite to coordinate direction
     var swipeStartX: Int = 0
     var swipeMaxX: Int = 0
-    var swipeMinX: Int = 1000
+    var swipeMinX: Int = 0
+    var swipeStartY: Int = 0
+    var swipeMaxY: Int = 0
+    var swipeMinY: Int = 0
     var swipeActive = false
+    var swipeGotFirstX = false
+    var swipeGotFirstY = false
+    var swipeStartTime: Date = .distantPast
+    // Continuous scroll: last Y value that triggered a scroll event
+    var lastScrollY: Int = 0
 
     func handleRingTap() {
         let now = Date()
-        guard now.timeIntervalSince(lastOptionTime) > 0.3 else { return }
+        guard now.timeIntervalSince(lastOptionTime) > kTapDebounce else { return }
         lastOptionTime = now
 
         if optionHeld {
@@ -65,24 +151,55 @@ class RingBridge {
         }
     }
 
-    var swipeGotFirstX = false
-
     func swipeStart() {
         swipeActive = true
         swipeGotFirstX = false
+        swipeGotFirstY = false
+        swipeStartX = 0
+        swipeMaxX = 0
+        swipeMinX = 0
+        swipeStartY = 0
+        swipeMaxY = 0
+        swipeMinY = 0
+        lastScrollY = 0
+        swipeStartTime = Date()
     }
 
-    func swipeUpdate(x: Int) {
+    func swipeUpdateX(_ x: Int) {
         guard swipeActive else { return }
+        let clamped = max(kSwipeCoordMin, min(kSwipeCoordMax, x))
         if !swipeGotFirstX {
-            // Use first X value as the actual start position
-            swipeStartX = x
-            swipeMaxX = x
-            swipeMinX = x
+            swipeStartX = clamped
+            swipeMaxX = clamped
+            swipeMinX = clamped
             swipeGotFirstX = true
         } else {
-            if x > swipeMaxX { swipeMaxX = x }
-            if x < swipeMinX { swipeMinX = x }
+            if clamped > swipeMaxX { swipeMaxX = clamped }
+            if clamped < swipeMinX { swipeMinX = clamped }
+        }
+    }
+
+    func swipeUpdateY(_ y: Int) {
+        guard swipeActive else { return }
+        let clamped = max(kSwipeCoordMin, min(kSwipeCoordMax, y))
+        if !swipeGotFirstY {
+            swipeStartY = clamped
+            swipeMaxY = clamped
+            swipeMinY = clamped
+            lastScrollY = clamped
+            swipeGotFirstY = true
+        } else {
+            if clamped > swipeMaxY { swipeMaxY = clamped }
+            if clamped < swipeMinY { swipeMinY = clamped }
+
+            // Fire continuous scroll events as Y changes during the swipe
+            let delta = clamped - lastScrollY
+            if abs(delta) >= kScrollStepThreshold {
+                // Y increases = scroll down (direction -1), Y decreases = scroll up (direction 1)
+                let direction: Int32 = delta > 0 ? -1 : 1
+                sendScroll(direction: direction)
+                lastScrollY = clamped
+            }
         }
     }
 
@@ -91,51 +208,69 @@ class RingBridge {
         swipeActive = false
 
         let now = Date()
-        let rightDelta = swipeMaxX - swipeStartX
-        let leftDelta = swipeStartX - swipeMinX
+        let duration = now.timeIntervalSince(swipeStartTime)
 
-        // X increases (swipe left on ring) -> Backspace
-        if rightDelta >= 400 {
-            guard now.timeIntervalSince(lastBackspaceTime) > 0.5 else { return }
-            lastBackspaceTime = now
-            sendBackspace()
+        let xIncreaseDelta = swipeMaxX - swipeStartX
+        let xDecreaseDelta = swipeStartX - swipeMinX
+        let yIncreaseDelta = swipeMaxY - swipeStartY
+        let yDecreaseDelta = swipeStartY - swipeMinY
+
+        let maxXMovement = max(xIncreaseDelta, xDecreaseDelta)
+        let maxYMovement = max(yIncreaseDelta, yDecreaseDelta)
+
+        // Short touch with no significant movement -> Escape
+        if duration < kShortTouchMaxDuration && maxXMovement < kShortTouchMaxMovement && maxYMovement < kShortTouchMaxMovement {
+            guard now.timeIntervalSince(lastEscapeTime) > kEscapeDebounce else { return }
+            lastEscapeTime = now
+            sendKey(kKeyCodeEscape, name: "ESCAPE")
             return
         }
 
+        // Y-axis scrolling is handled continuously in swipeUpdateY, so only
+        // process X-axis swipes (Enter/Backspace) at swipeEnd.
+
+        // X increases (swipe left on ring) -> Backspace
+        if xIncreaseDelta >= kSwipeThreshold {
+            guard now.timeIntervalSince(lastBackspaceTime) > kSwipeDebounce else { return }
+            lastBackspaceTime = now
+            sendKey(kKeyCodeDelete, name: "BACKSPACE")
+            return
+        }
         // X decreases (swipe right on ring) -> Enter
-        if leftDelta >= 400 {
-            guard now.timeIntervalSince(lastEnterTime) > 0.5 else { return }
+        if xDecreaseDelta >= kSwipeThreshold {
+            guard now.timeIntervalSince(lastEnterTime) > kSwipeDebounce else { return }
             lastEnterTime = now
-            sendEnter()
+            sendKey(kKeyCodeReturn, name: "ENTER")
         }
     }
 
-    func sendBackspace() {
+    func sendScroll(direction: Int32) {
+        // direction: 1 = scroll up, -1 = scroll down
+        // Temporarily reset the ring event timestamp so our CGEvent tap doesn't
+        // correlate this scroll with a ring event and block it.
+        clearRingIOKitEvent()
         let src = CGEventSource(stateID: .hidSystemState)
-        // Delete/Backspace = keycode 51
-        if let down = CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: true) {
-            down.post(tap: .cghidEventTap)
+        if let scrollEvent = CGEvent(scrollWheelEvent2Source: src, units: .line, wheelCount: 1, wheel1: direction * kScrollAmount, wheel2: 0, wheel3: 0) {
+            scrollEvent.post(tap: .cghidEventTap)
         }
-        if let up = CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: false) {
-            up.post(tap: .cghidEventTap)
-        }
-        print("[\(ts())] BACKSPACE pressed")
+        let label = direction > 0 ? "SCROLL UP" : "SCROLL DOWN"
+        print("[\(ts())] \(label)")
     }
 
-    func sendEnter() {
+    func sendKey(_ keyCode: CGKeyCode, name: String) {
         let src = CGEventSource(stateID: .hidSystemState)
-        if let down = CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: true) {
+        if let down = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true) {
             down.post(tap: .cghidEventTap)
         }
-        if let up = CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: false) {
+        if let up = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false) {
             up.post(tap: .cghidEventTap)
         }
-        print("[\(ts())] ENTER pressed")
+        print("[\(ts())] \(name) pressed")
     }
 
     func pressOption() {
         let src = CGEventSource(stateID: .hidSystemState)
-        if let e = CGEvent(keyboardEventSource: src, virtualKey: 58, keyDown: true) {
+        if let e = CGEvent(keyboardEventSource: src, virtualKey: kKeyCodeOption, keyDown: true) {
             e.flags = .maskAlternate
             e.post(tap: .cghidEventTap)
         }
@@ -143,26 +278,15 @@ class RingBridge {
 
     func releaseOption() {
         let src = CGEventSource(stateID: .hidSystemState)
-        if let e = CGEvent(keyboardEventSource: src, virtualKey: 58, keyDown: false) {
+        if let e = CGEvent(keyboardEventSource: src, virtualKey: kKeyCodeOption, keyDown: false) {
             e.flags = []
             e.post(tap: .cghidEventTap)
         }
     }
-
-    func ts() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        return f.string(from: Date())
-    }
-}
-
-func ts_global() -> String {
-    let f = DateFormatter()
-    f.dateFormat = "HH:mm:ss"
-    return f.string(from: Date())
 }
 
 // --- Main ---
+// All callbacks and timers are scheduled on the main CFRunLoop.
 
 setbuf(stdout, nil)
 
@@ -180,27 +304,33 @@ let matchDict: [String: Any] = [
 ]
 IOHIDManagerSetDeviceMatching(hidManager, matchDict as CFDictionary)
 
-// Shared IOKit input value callback for the ring device
+// IOKit input value callback for the ring device
 let ringInputCallback: IOHIDValueCallback = { ctx, result, sender, value in
     let element = IOHIDValueGetElement(value)
     let usagePage = IOHIDElementGetUsagePage(element)
     let usage = IOHIDElementGetUsage(element)
     let intValue = IOHIDValueGetIntegerValue(value)
 
-    let b = Unmanaged<RingBridge>.fromOpaque(ctx!).takeUnretainedValue()
+    guard let ctx = ctx else { return }
+    let b = Unmanaged<RingBridge>.fromOpaque(ctx).takeUnretainedValue()
 
-    markRingIOKitEvent()
+    // Mark timing for CGEvent correlation ONLY on Consumer Control events.
+    // Digitizer/coordinate events during swipes must NOT mark, otherwise trailing
+    // IOKit events race with clearRingIOKitEvent() and block our synthetic scrolls.
+    if usagePage == kConsumerControlPage {
+        markRingIOKitEvent()
+    }
 
-    // Consumer Control page (0x0C) - button press
-    // Ring alternates between Vol Down (0xEA) and Vol Up (0xE9) on consecutive taps
-    if usagePage == 0x0C && intValue > 0 {
-        if usage == 0xE2 || usage == 0xEA || usage == 0xE9 {
+    // Consumer Control page — button press
+    // Ring alternates between Vol Down and Vol Up on consecutive taps
+    if usagePage == kConsumerControlPage && intValue > 0 {
+        if usage == kUsageMute || usage == kUsageVolDown || usage == kUsageVolUp {
             b.handleRingTap()
         }
     }
 
-    // Digitizer page (0x0D) - In Range start/end for swipe detection
-    if usagePage == 0x0D && usage == 0x32 {
+    // Digitizer page — In Range start/end for swipe detection
+    if usagePage == kDigitizerPage && usage == kUsageInRange {
         if intValue == 1 {
             b.swipeStart()
         } else {
@@ -208,20 +338,26 @@ let ringInputCallback: IOHIDValueCallback = { ctx, result, sender, value in
         }
     }
 
-    // Generic Desktop page (0x1) - X coordinate updates during swipe
-    if usagePage == 0x1 && usage == 0x30 {
-        b.swipeUpdate(x: Int(intValue))
+    // Generic Desktop page — X and Y coordinate updates during swipe
+    if usagePage == kGenericDesktopPage && usage == kUsageX {
+        b.swipeUpdateX(Int(intValue))
+    }
+    if usagePage == kGenericDesktopPage && usage == kUsageY {
+        b.swipeUpdateY(Int(intValue))
     }
 }
 
-func registerRingCallbacks(on device: IOHIDDevice) {
-    IOHIDDeviceRegisterInputValueCallback(device, ringInputCallback,
-        Unmanaged.passUnretained(bridge).toOpaque())
-}
+// Register input callback at manager level (not per-device) so we capture events
+// from ALL HID interfaces the ring exposes. The ring has separate Consumer Control
+// and Digitizer interfaces — per-device registration only catches one.
+IOHIDManagerRegisterInputValueCallback(hidManager, ringInputCallback,
+    Unmanaged.passUnretained(bridge).toOpaque())
 
 let hidMatchCallback: IOHIDDeviceCallback = { context, result, sender, device in
-    print("[\(ts_global())] Ring connected via BLE")
-    registerRingCallbacks(on: device)
+    let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "unknown"
+    let serial = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String ?? "none"
+    let manufacturer = IOHIDDeviceGetProperty(device, kIOHIDManufacturerKey as CFString) as? String ?? "unknown"
+    print("[\(ts())] Ring connected — name: \(name), serial: \(serial), manufacturer: \(manufacturer)")
 
     // Re-enable event tap on reconnect
     if let t = globalTap {
@@ -230,19 +366,25 @@ let hidMatchCallback: IOHIDDeviceCallback = { context, result, sender, device in
 }
 
 let hidRemoveCallback: IOHIDDeviceCallback = { context, result, sender, device in
-    print("[\(ts_global())] Ring disconnected")
+    print("[\(ts())] Ring disconnected")
 }
 
 IOHIDManagerRegisterDeviceMatchingCallback(hidManager, hidMatchCallback, nil)
 IOHIDManagerRegisterDeviceRemovalCallback(hidManager, hidRemoveCallback, nil)
 IOHIDManagerScheduleWithRunLoop(hidManager, CFRunLoopGetCurrent(), CFRunLoopMode.commonModes.rawValue)
-IOHIDManagerOpen(hidManager, IOOptionBits(kIOHIDOptionsTypeNone))
 
-// Register callbacks on already-connected devices
+let hidOpenResult = IOHIDManagerOpen(hidManager, IOOptionBits(kIOHIDOptionsTypeNone))
+if hidOpenResult != kIOReturnSuccess {
+    print("ERROR: IOHIDManagerOpen failed with code \(hidOpenResult)")
+    print("Check Input Monitoring permissions in System Settings > Privacy & Security")
+    exit(1)
+}
+
+// Log already-connected devices
 if let devices = IOHIDManagerCopyDevices(hidManager) as? Set<IOHIDDevice> {
     for device in devices {
-        print("Ring already connected")
-        registerRingCallbacks(on: device)
+        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "unknown"
+        print("[\(ts())] Ring already connected — \(name)")
     }
 }
 
@@ -254,21 +396,22 @@ if let devices = IOHIDManagerCopyDevices(hidManager) as? Set<IOHIDDevice> {
 var globalTap: CFMachPort?
 var globalRunLoopSource: CFRunLoopSource?
 
-let mask: CGEventMask = (1 << 14) | (1 << CGEventType.scrollWheel.rawValue)
+let cgEventMask: CGEventMask = (1 << kCGEventTypeSystemDefined) | (1 << CGEventType.scrollWheel.rawValue)
 
-let callback: CGEventTapCallBack = { proxy, type, event, refcon in
+let cgEventTapCallback: CGEventTapCallBack = { proxy, type, event, refcon in
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
         if let t = globalTap { CGEvent.tapEnable(tap: t, enable: true) }
-        print("[\(ts_global())] Tap re-enabled")
+        print("[\(ts())] Tap re-enabled")
         return Unmanaged.passUnretained(event)
     }
 
-    // Block type-14 (media key) events that correlate with recent ring IOKit events
-    if type.rawValue == 14 && isRecentRingIOKitEvent() {
+    // Block system-defined (media key) events that correlate with recent ring IOKit events
+    if type.rawValue == kCGEventTypeSystemDefined && isRecentRingIOKitEvent() {
         return nil
     }
 
-    // Block scroll events that correlate with recent ring IOKit events
+    // Block scroll events that correlate with recent ring IOKit events.
+    // Our synthetic scroll events clear the timestamp before posting so they pass through.
     if type == .scrollWheel && isRecentRingIOKitEvent() {
         return nil
     }
@@ -287,8 +430,8 @@ func createAndInstallTap() -> Bool {
         tap: .cgSessionEventTap,
         place: .headInsertEventTap,
         options: .defaultTap,
-        eventsOfInterest: mask,
-        callback: callback,
+        eventsOfInterest: cgEventMask,
+        callback: cgEventTapCallback,
         userInfo: nil
     ) else {
         return false
@@ -312,16 +455,16 @@ let healthTimer = DispatchSource.makeTimerSource(queue: .main)
 healthTimer.schedule(deadline: .now() + 5, repeating: 5.0)
 healthTimer.setEventHandler {
     guard let tap = globalTap else {
-        if createAndInstallTap() { print("[\(ts_global())] Health: tap reinstalled") }
+        if createAndInstallTap() { print("[\(ts())] Health: tap reinstalled") }
         return
     }
     if !CGEvent.tapIsEnabled(tap: tap) {
         CGEvent.tapEnable(tap: tap, enable: true)
         if !CGEvent.tapIsEnabled(tap: tap) {
             _ = createAndInstallTap()
-            print("[\(ts_global())] Health: tap reinstalled")
+            print("[\(ts())] Health: tap reinstalled")
         } else {
-            print("[\(ts_global())] Health: tap re-enabled")
+            print("[\(ts())] Health: tap re-enabled")
         }
     }
 }
@@ -332,30 +475,41 @@ healthTimer.resume()
 print("========================================")
 print("  JX-11 Ring -> FluidVoice Bridge")
 print("========================================")
-print("Tap ring: toggle Left Option (push-to-talk)")
-print("  1st tap = START recording")
-print("  2nd tap = STOP recording")
-print("Swipe right: Enter key (submit messages)")
-print("Swipe left: Backspace/Delete")
+print("Tap ring:    toggle Left Option (push-to-talk)")
+print("  1st tap  = START recording")
+print("  2nd tap  = STOP recording")
+print("Swipe right: Enter (submit messages)")
+print("Swipe left:  Backspace/Delete")
+print("Swipe up:    Scroll up")
+print("Swipe down:  Scroll down")
+print("Short touch: Escape (interrupt agent)")
 print("Mute blocked. Keyboard volume keys unaffected.")
 print("")
-print("Device detection: IOKit HID (VendorID/ProductID)")
+print("Device detection: IOKit HID (VendorID/ProductID + name validation)")
 print("Health check: every 5s")
 print("Running... (Ctrl+C to stop)")
 
 // --- Clean Shutdown ---
+// Uses DispatchSource signal handlers instead of raw signal() to avoid
+// calling non-async-signal-safe functions from signal context.
 
-func cleanShutdown(_ sig: Int32) {
-    let src = CGEventSource(stateID: .hidSystemState)
-    if let e = CGEvent(keyboardEventSource: src, virtualKey: 58, keyDown: false) {
-        e.flags = []
-        e.post(tap: .cghidEventTap)
-    }
+let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+
+func performShutdown() {
+    bridge.releaseOption()
     print("\nBridge stopped. Option key released.")
     exit(0)
 }
 
-signal(SIGINT, cleanShutdown)
-signal(SIGTERM, cleanShutdown)
+sigintSource.setEventHandler { performShutdown() }
+sigtermSource.setEventHandler { performShutdown() }
+
+// Ignore default signal handling so DispatchSource receives the signals
+signal(SIGINT, SIG_IGN)
+signal(SIGTERM, SIG_IGN)
+
+sigintSource.resume()
+sigtermSource.resume()
 
 CFRunLoopRun()

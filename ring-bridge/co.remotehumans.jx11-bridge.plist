@@ -1,0 +1,21 @@
+<!-- ABOUTME: LaunchAgent plist for the jx11-bridge binary. -->
+<!-- ABOUTME: Keeps the bridge running at load, logging to /tmp/jx11-bridge.log. -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>co.remotehumans.jx11-bridge</string>
+	<key>Program</key>
+	<string>/Users/elliott/Documents/AI Projects_local/voice-ai/ring-bridge/jx11-bridge</string>
+	<key>KeepAlive</key>
+	<true/>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/tmp/jx11-bridge.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/jx11-bridge.log</string>
+</dict>
+</plist>
