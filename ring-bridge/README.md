@@ -16,7 +16,7 @@ Pair the ring with a wireless microphone (like a DJI wireless mic) and you can b
 | **Right arrow** | Send (Enter key) | Submit what you said to the agent |
 | **Left arrow** | Delete (Backspace key) | Remove what you just said if you misspoke |
 | **Scroll up/down** (touchpad) | Scroll the screen | Read through agent output and code |
-| **Quick tap** (touchpad) | Escape key | Interrupt the agent if it goes off track |
+| **Side button** | Escape key | Interrupt the agent if it goes off track |
 
 ## How It Works
 
@@ -80,7 +80,7 @@ You should see "Ring connected" and a list of available controls.
 6. **Tap again** to stop recording
 7. **Press the right arrow** to send it to the agent
 8. **Scroll the touchpad up/down** to read the agent's response
-9. **Quick tap the touchpad** if you need to interrupt the agent
+9. **Press the side button** if you need to interrupt the agent
 10. **Press the left arrow** if you need to delete and start over
 
 ## Troubleshooting
