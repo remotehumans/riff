@@ -1,5 +1,7 @@
 # JX-11 Smart Ring Bridge
 
+![Voice AI Workflow - Walk around, think out loud, build with AI](voice-ai-workflow-nb.jpg)
+
 A macOS daemon that turns a cheap Bluetooth smart ring into a wireless controller for AI coding agents.
 
 ## What This Does
