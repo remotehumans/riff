@@ -7,3 +7,6 @@ jx11-bridge
 # Temporary capture/debug scripts
 /tmp/
 *.log
+
+# Audit reports (local only)
+AUDIT.md
