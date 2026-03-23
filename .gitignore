@@ -1,0 +1,9 @@
+# ABOUTME: Root gitignore for the voice-ai monorepo.
+# ABOUTME: Excludes OS files, editor configs, and build artifacts.
+
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
