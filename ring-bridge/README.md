@@ -13,16 +13,16 @@ Pair the ring with a wireless microphone (like a DJI wireless mic) and you can b
 | Ring action | What it does | Why you need it |
 |---|---|---|
 | **Tap** (press button) | Toggle voice recording on/off | Start and stop talking to your AI agent |
-| **Swipe right** | Send (Enter key) | Submit what you said to the agent |
-| **Swipe left** | Delete (Backspace key) | Remove what you just said if you misspoke |
-| **Swipe up/down** | Scroll the screen | Read through agent output and code |
-| **Short touch** (quick tap on touchpad) | Escape key | Interrupt the agent if it goes off track |
+| **Right arrow** | Send (Enter key) | Submit what you said to the agent |
+| **Left arrow** | Delete (Backspace key) | Remove what you just said if you misspoke |
+| **Scroll up/down** (touchpad) | Scroll the screen | Read through agent output and code |
+| **Quick tap** (touchpad) | Escape key | Interrupt the agent if it goes off track |
 
 ## How It Works
 
 The ring pretends to be a media controller (like headphone buttons). This daemon catches those signals before macOS turns them into volume/mute commands, and translates them into keyboard actions that coding agents understand.
 
-The voice recording toggle holds down the Option key, which apps like [Superwhisper](https://superwhisper.com/) use as a push-to-talk trigger. When you tap the ring, it starts recording. Tap again, it stops. Then swipe right to send your message.
+The voice recording toggle holds down the Option key, which apps like [Superwhisper](https://superwhisper.com/) use as a push-to-talk trigger. When you tap the ring, it starts recording. Tap again, it stops. Then press the right arrow to send your message.
 
 ## Hardware
 
@@ -78,10 +78,10 @@ You should see "Ring connected" and a list of available controls.
 4. **Tap the ring** to start recording your voice
 5. Speak your instructions ("Create a new API endpoint for user profiles...")
 6. **Tap again** to stop recording
-7. **Swipe right** to send it to the agent
-8. **Scroll up/down** to read the agent's response
-9. **Short touch** if you need to interrupt the agent
-10. **Swipe left** if you need to delete and start over
+7. **Press the right arrow** to send it to the agent
+8. **Scroll the touchpad up/down** to read the agent's response
+9. **Quick tap the touchpad** if you need to interrupt the agent
+10. **Press the left arrow** if you need to delete and start over
 
 ## Troubleshooting
 
