@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -237,10 +238,51 @@ class RiffDaemon:
         else:
             return {"error": f"unknown command: {cmd}"}
 
+    @staticmethod
+    def _auto_name_from_text(text: str) -> str:
+        """Derive a 2-4 word session name from message text."""
+        # Common filler words to skip
+        stop_words = {
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+            "of", "with", "by", "from", "is", "are", "was", "were", "been", "be",
+            "has", "had", "have", "do", "does", "did", "will", "would", "could",
+            "should", "may", "might", "shall", "can", "this", "that", "these",
+            "those", "i", "you", "we", "they", "it", "he", "she", "my", "your",
+            "our", "their", "its", "all", "just", "also", "now", "then", "here",
+            "there", "up", "out", "so", "not", "no", "if", "as", "into", "about",
+            "which", "when", "what", "how", "who", "where", "some", "any", "each",
+            "every", "both", "more", "most", "very", "much", "many", "well",
+            "still", "already", "yet", "too", "only", "new", "old",
+        }
+
+        # Clean text: take first sentence, strip markdown/special chars
+        first_sentence = re.split(r'[.!?\n]', text)[0].strip()
+        words = re.findall(r'[a-zA-Z]+', first_sentence)
+
+        # Filter to meaningful words
+        meaningful = [w for w in words if w.lower() not in stop_words and len(w) > 2]
+
+        if not meaningful:
+            return ""
+
+        # Take first 3 meaningful words, title case
+        name = " ".join(w.capitalize() for w in meaningful[:3])
+        return name
+
     def _handle_speak(self, msg: dict[str, Any]) -> dict[str, Any]:
         text = msg.get("text", "")
         if not text:
             return {"error": "missing text field"}
+
+        session = msg.get("session", "unknown")
+
+        # Auto-name new sessions from their first message
+        if session not in self.config.session_names and session != "unknown":
+            auto_name = self._auto_name_from_text(text)
+            if auto_name:
+                self.config.session_names[session] = auto_name
+                self.config.save()
+                log(f"Auto-named session [{session}] as '{auto_name}'")
 
         # Store full_text for later read_full command
         full_text = msg.get("full_text")
@@ -249,7 +291,7 @@ class RiffDaemon:
 
         self.queue.put_nowait({
             "text": text,
-            "session": msg.get("session", "unknown"),
+            "session": session,
             "voice": msg.get("voice"),
         })
         return {"ok": True, "queued": self.queue.qsize()}
