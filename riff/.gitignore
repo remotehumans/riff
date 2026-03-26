@@ -1,0 +1,10 @@
+# ABOUTME: Gitignore for Riff voice narrator project.
+# ABOUTME: Excludes venv, Python cache, build artifacts, and logs.
+
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+/tmp/
+*.log
+.DS_Store

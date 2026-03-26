@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "model": "mlx-community/Kokoro-82M-bf16",
+  "default_voice": "am_adam",
+  "announcer_voice": "af_heart",
+  "speed": 1.5,
+  "voice_map": {},
+  "socket_path": "/tmp/riff.sock",
+  "announce_sessions": true
+}

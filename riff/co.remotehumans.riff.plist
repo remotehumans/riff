@@ -1,0 +1,27 @@
+<!-- ABOUTME: LaunchAgent plist for the Riff voice narrator daemon. -->
+<!-- ABOUTME: Keeps the daemon running at load, logging to /tmp/riff.log. -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>co.remotehumans.riff</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/elliott/Documents/AI Projects_local/voice-ai/riff/.venv/bin/python3</string>
+		<string>-m</string>
+		<string>riff.daemon</string>
+	</array>
+	<key>KeepAlive</key>
+	<true/>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>WorkingDirectory</key>
+	<string>/Users/elliott/Documents/AI Projects_local/voice-ai/riff</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/riff.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/riff.log</string>
+</dict>
+</plist>

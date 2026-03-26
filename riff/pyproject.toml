@@ -1,0 +1,27 @@
+# ABOUTME: UV project config for Riff - voice narrator for AI agents.
+# ABOUTME: Defines dependencies, CLI entry points, and build settings.
+
+[project]
+name = "riff"
+version = "0.1.0"
+description = "Voice narrator for AI coding agents - hear your agents riff"
+readme = "README.md"
+authors = [
+    { name = "Elliott Callender", email = "elliott@remotehumans.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "mlx-audio[tts]",
+    "sounddevice",
+    "soundfile",
+    "numpy",
+]
+
+[project.scripts]
+riff-say = "riff.cli:say"
+riff-ctl = "riff.cli:ctl"
+riff-daemon = "riff.daemon:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
