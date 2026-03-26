@@ -153,12 +153,13 @@ class RiffDaemon:
             speed = self.config.speed
 
             self.current_session = session
-            log(f"Speaking for [{session}]: {text[:80]}{'...' if len(text) > 80 else ''}")
+            display_name = self.config.session_names.get(session, session)
+            log(f"Speaking for [{display_name}]: {text[:80]}{'...' if len(text) > 80 else ''}")
 
             try:
                 # Announce session name if enabled and session provided
                 if self.config.announce_sessions and session != "unknown":
-                    announce_text = f"{session} says:"
+                    announce_text = f"{display_name} says:"
                     audio_np = await loop.run_in_executor(
                         None, self._synthesize, announce_text, self.config.announcer_voice, 1.0
                     )
@@ -229,6 +230,8 @@ class RiffDaemon:
             return self._handle_set_enabled(msg)
         elif cmd == "set_speed":
             return self._handle_set_speed(msg)
+        elif cmd == "set_name":
+            return self._handle_set_name(msg)
         elif cmd == "list_voices":
             return self._handle_list_voices()
         else:
@@ -331,6 +334,17 @@ class RiffDaemon:
         self.config.speed = speed
         log(f"Playback speed set to {speed}x")
         return {"ok": True, "speed": self.config.speed}
+
+    def _handle_set_name(self, msg: dict[str, Any]) -> dict[str, Any]:
+        session = msg.get("session")
+        name = msg.get("name")
+        if not session or not name:
+            return {"error": "missing session or name field"}
+
+        self.config.session_names[session] = name
+        self.config.save()
+        log(f"Session [{session}] named '{name}'")
+        return {"ok": True, "session": session, "name": name}
 
     def _handle_list_voices(self) -> dict[str, Any]:
         return {"voices": KOKORO_VOICES}

@@ -18,6 +18,7 @@ DEFAULTS = {
     "announcer_voice": "af_heart",
     "speed": 1.0,
     "voice_map": {},
+    "session_names": {},
     "socket_path": "/tmp/riff.sock",
     "announce_sessions": True,
 }
@@ -31,6 +32,7 @@ class RiffConfig:
     announcer_voice: str = "af_heart"
     speed: float = 1.0
     voice_map: Dict[str, str] = field(default_factory=dict)
+    session_names: Dict[str, str] = field(default_factory=dict)
     socket_path: str = "/tmp/riff.sock"
     announce_sessions: bool = True
 
@@ -55,6 +57,7 @@ class RiffConfig:
             announcer_voice=merged["announcer_voice"],
             speed=float(merged["speed"]),
             voice_map=merged.get("voice_map", {}),
+            session_names=merged.get("session_names", {}),
             socket_path=merged["socket_path"],
             announce_sessions=merged["announce_sessions"],
         )

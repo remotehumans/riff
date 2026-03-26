@@ -52,9 +52,9 @@ def ctl():
     """Entry point for riff-ctl: control the Riff daemon."""
     parser = argparse.ArgumentParser(description="Control the Riff voice daemon")
     parser.add_argument("command", choices=[
-        "interrupt", "skip", "status", "voices", "full", "speed", "enable", "disable"
+        "interrupt", "skip", "status", "voices", "full", "speed", "name", "enable", "disable"
     ], help="Command to send")
-    parser.add_argument("value", nargs="?", default=None, help="Value for commands that need one (e.g. speed 1.5)")
+    parser.add_argument("value", nargs="*", default=None, help="Value(s) for commands (e.g. speed 1.5, name remote-humans-agi 'Riff Build')")
     args = parser.parse_args()
 
     command_map = {
@@ -68,14 +68,20 @@ def ctl():
     }
 
     if args.command == "speed":
-        if args.value is None:
+        if not args.value:
             print("error: speed requires a value (e.g. riff-ctl speed 1.5)", file=sys.stderr)
             sys.exit(1)
         try:
-            message = {"type": "set_speed", "speed": float(args.value)}
+            message = {"type": "set_speed", "speed": float(args.value[0])}
         except ValueError:
-            print(f"error: invalid speed value: {args.value}", file=sys.stderr)
+            print(f"error: invalid speed value: {args.value[0]}", file=sys.stderr)
             sys.exit(1)
+    elif args.command == "name":
+        if not args.value or len(args.value) < 2:
+            print("error: name requires session key and display name", file=sys.stderr)
+            print("  e.g. riff-ctl name remote-humans-agi 'Riff Build'", file=sys.stderr)
+            sys.exit(1)
+        message = {"type": "set_name", "session": args.value[0], "name": " ".join(args.value[1:])}
     else:
         message = command_map[args.command]
 
