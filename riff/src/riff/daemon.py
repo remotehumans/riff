@@ -105,17 +105,35 @@ class RiffDaemon:
         return audio_np.astype(np.float32)
 
     def _play_audio(self, audio_np: np.ndarray) -> None:
-        """Play audio through sounddevice."""
-        sd.play(audio_np, samplerate=24000)
+        """Play audio through sounddevice, with retry on device errors."""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                sd.play(audio_np, samplerate=24000)
 
-        # Wait for playback to finish, checking interrupt flag periodically
-        stream = sd.get_stream()
-        while stream is not None and stream.active:
-            if self.interrupted:
+                # Wait for playback to finish, checking interrupt flag periodically
+                stream = sd.get_stream()
+                while stream is not None and stream.active:
+                    if self.interrupted:
+                        sd.stop()
+                        return
+                    sd.sleep(50)
+                    stream = sd.get_stream()
+                return  # Success
+            except sd.PortAudioError as e:
+                log(f"Audio device error (attempt {attempt + 1}/{max_retries}): {e}")
                 sd.stop()
-                return
-            sd.sleep(50)
-            stream = sd.get_stream()
+                if attempt < max_retries - 1:
+                    # Reset sounddevice to pick up new/changed audio devices
+                    try:
+                        sd._terminate()
+                        sd._initialize()
+                        log("Audio device reset, retrying...")
+                    except Exception:
+                        import time
+                        time.sleep(1)
+                else:
+                    log("Audio device failed after all retries, skipping this message")
 
     async def speech_worker(self) -> None:
         """Pull items from the speech queue and play them sequentially."""
