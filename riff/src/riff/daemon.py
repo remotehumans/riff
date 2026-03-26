@@ -27,6 +27,15 @@ KOKORO_VOICES = [
     "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
 ]
 
+# Voices to auto-assign to new sessions (distinct, easy to tell apart)
+# Excludes default_voice and announcer_voice so they stay unique
+AUTO_ASSIGN_VOICES = [
+    "bf_emma", "am_echo", "af_nova", "bm_george", "af_bella",
+    "am_liam", "bf_lily", "bm_daniel", "af_jessica", "am_eric",
+    "af_river", "bm_fable", "af_kore", "am_michael", "bf_isabella",
+    "af_sarah", "am_onyx", "bm_lewis", "af_alloy", "am_puck",
+]
+
 
 def log(msg: str) -> None:
     """Print a timestamped log line to stdout."""
@@ -276,13 +285,26 @@ class RiffDaemon:
 
         session = msg.get("session", "unknown")
 
-        # Auto-name new sessions from their first message
-        if session not in self.config.session_names and session != "unknown":
-            auto_name = self._auto_name_from_text(text)
-            if auto_name:
-                self.config.session_names[session] = auto_name
+        # Auto-name and auto-assign voice to new sessions
+        if session != "unknown":
+            changed = False
+            if session not in self.config.session_names:
+                auto_name = self._auto_name_from_text(text)
+                if auto_name:
+                    self.config.session_names[session] = auto_name
+                    log(f"Auto-named session [{session}] as '{auto_name}'")
+                    changed = True
+            if session not in self.config.voice_map:
+                used_voices = set(self.config.voice_map.values())
+                for voice in AUTO_ASSIGN_VOICES:
+                    if voice not in used_voices:
+                        self.config.voice_map[session] = voice
+                        display = self.config.session_names.get(session, session)
+                        log(f"Auto-assigned voice '{voice}' to [{display}]")
+                        changed = True
+                        break
+            if changed:
                 self.config.save()
-                log(f"Auto-named session [{session}] as '{auto_name}'")
 
         # Store full_text for later read_full command
         full_text = msg.get("full_text")
