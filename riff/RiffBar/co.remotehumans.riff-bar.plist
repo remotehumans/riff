@@ -1,0 +1,22 @@
+<!-- ABOUTME: LaunchAgent plist for auto-starting the RiffBar menu bar app at login. -->
+<!-- ABOUTME: Runs the compiled RiffBar binary with stdout/stderr logged to /tmp/riff-bar.log. -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>co.remotehumans.riff-bar</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/elliott/Documents/AI Projects_local/voice-ai/riff/RiffBar/RiffBar</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/riff-bar.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/riff-bar.log</string>
+</dict>
+</plist>

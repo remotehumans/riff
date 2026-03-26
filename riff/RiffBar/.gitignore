@@ -1,0 +1,4 @@
+# ABOUTME: Git ignore rules for the RiffBar build directory.
+# ABOUTME: Excludes the compiled binary and log files from version control.
+RiffBar
+*.log

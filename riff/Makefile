@@ -4,15 +4,17 @@
 AGENT_DIR = $(HOME)/Library/LaunchAgents
 PLIST = co.remotehumans.riff.plist
 LABEL = co.remotehumans.riff
+BAR_PLIST = co.remotehumans.riff-bar.plist
+BAR_LABEL = co.remotehumans.riff-bar
 CONFIG_DIR = $(HOME)/.config/riff
 HOOK_DIR = $(HOME)/.claude/hooks
 
-.PHONY: all install clean uninstall restart logs
+.PHONY: all install clean uninstall restart logs bar bar-install bar-uninstall
 
 all:
 	uv sync
 
-install: all
+install: all bar
 	mkdir -p $(CONFIG_DIR)
 	@test -f $(CONFIG_DIR)/config.json || cp config.default.json $(CONFIG_DIR)/config.json
 	mkdir -p $(AGENT_DIR)
@@ -29,7 +31,7 @@ install: all
 clean:
 	rm -rf .venv/
 
-uninstall:
+uninstall: bar-uninstall
 	-launchctl bootout gui/$$(id -u) $(AGENT_DIR)/$(PLIST) 2>/dev/null
 	rm -f $(AGENT_DIR)/$(PLIST)
 	rm -f $(HOME)/.local/bin/riff-say
@@ -42,3 +44,16 @@ restart:
 
 logs:
 	tail -f /tmp/riff.log
+
+bar:
+	cd RiffBar && bash build.sh
+
+bar-install: bar
+	mkdir -p $(AGENT_DIR)
+	cp RiffBar/$(BAR_PLIST) $(AGENT_DIR)/$(BAR_PLIST)
+	-launchctl bootout gui/$$(id -u) $(AGENT_DIR)/$(BAR_PLIST) 2>/dev/null
+	launchctl bootstrap gui/$$(id -u) $(AGENT_DIR)/$(BAR_PLIST)
+
+bar-uninstall:
+	-launchctl bootout gui/$$(id -u) $(AGENT_DIR)/$(BAR_PLIST) 2>/dev/null
+	rm -f $(AGENT_DIR)/$(BAR_PLIST)
