@@ -218,11 +218,12 @@ class RingBridge {
         let maxXMovement = max(xIncreaseDelta, xDecreaseDelta)
         let maxYMovement = max(yIncreaseDelta, yDecreaseDelta)
 
-        // Short touch with no significant movement -> Escape
+        // Short touch with no significant movement -> Escape + Riff interrupt
         if duration < kShortTouchMaxDuration && maxXMovement < kShortTouchMaxMovement && maxYMovement < kShortTouchMaxMovement {
             guard now.timeIntervalSince(lastEscapeTime) > kEscapeDebounce else { return }
             lastEscapeTime = now
             sendKey(kKeyCodeEscape, name: "ESCAPE")
+            interruptRiff()
             return
         }
 
@@ -266,6 +267,32 @@ class RingBridge {
             up.post(tap: .cghidEventTap)
         }
         print("[\(ts())] \(name) pressed")
+    }
+
+    func interruptRiff() {
+        // Send interrupt to Riff voice daemon via Unix socket (non-blocking, fire-and-forget)
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        task.arguments = ["-c", """
+            import socket, json
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(1)
+                s.connect('/tmp/riff.sock')
+                s.send(json.dumps({"type": "interrupt"}).encode() + b"\\n")
+                s.recv(1024)
+                s.close()
+            except:
+                pass
+            """]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            print("[\(ts())] RIFF interrupt sent")
+        } catch {
+            // Riff daemon might not be running - that's fine
+        }
     }
 
     func pressOption() {
