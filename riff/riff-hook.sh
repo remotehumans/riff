@@ -1,102 +1,106 @@
 #!/usr/bin/env bash
 # ABOUTME: Claude Code Stop hook that sends assistant output to the Riff voice daemon.
-# ABOUTME: Extracts summary or first sentence from transcript and speaks it via Unix socket.
-
-# Never fail - hook errors must not block Claude Code
-set -o pipefail 2>/dev/null || true
-trap 'exit 0' ERR
+# ABOUTME: Extracts SUMMARY line or first sentence from last_assistant_message and speaks it.
 
 SOCKET_PATH="/tmp/riff.sock"
 
 # Bail early if daemon socket doesn't exist
-if [ ! -S "$SOCKET_PATH" ]; then
-    exit 0
-fi
+[ ! -S "$SOCKET_PATH" ] && exit 0
 
-# Read hook JSON from stdin (defensive - might be empty or malformed)
+# Read stdin first (before anything else consumes it)
 INPUT=$(cat 2>/dev/null || echo "{}")
 
-# Extract fields from hook JSON
-TRANSCRIPT_PATH=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('transcript_path',''))" 2>/dev/null || echo "")
-CWD=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null || echo "")
-
-# Derive session name from cwd
-if [ -n "$CWD" ]; then
-    SESSION=$(basename "$CWD")
-else
-    SESSION=$(basename "$(pwd)")
-fi
-
-# Need a transcript to read from
-if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
-    exit 0
-fi
-
-# Get the last assistant message from the JSONL transcript
-FULL_TEXT=$(python3 -c "
-import json, sys
-last_msg = ''
-with open(sys.argv[1], 'r') as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-            if obj.get('role') == 'assistant':
-                content = obj.get('content', '')
-                if isinstance(content, str) and content:
-                    last_msg = content
-        except (json.JSONDecodeError, KeyError):
-            continue
-print(last_msg)
-" "$TRANSCRIPT_PATH" 2>/dev/null || echo "")
-
-# Nothing to say
-if [ -z "$FULL_TEXT" ]; then
-    exit 0
-fi
-
-# Extract summary: look for SUMMARY: line, else take first sentence
-SPEAK_TEXT=$(python3 -c "
-import re, sys
-text = sys.stdin.read().strip()
-# Look for SUMMARY: line
-match = re.search(r'SUMMARY:\s*(.+)', text)
-if match:
-    print(match.group(1).strip())
-else:
-    # First sentence (up to first period followed by space or end)
-    match = re.match(r'([^.]+\.)', text)
-    if match:
-        print(match.group(1).strip())
-    else:
-        # Fallback: first 200 chars
-        print(text[:200])
-" <<< "$FULL_TEXT" 2>/dev/null || echo "")
-
-if [ -z "$SPEAK_TEXT" ]; then
-    exit 0
-fi
-
-# Send to Riff daemon via Python one-liner (no socat dependency)
+# Do all parsing and sending in Python
 python3 -c "
-import socket, json, sys
-msg = {
-    'type': 'speak',
-    'text': sys.argv[1],
-    'session': sys.argv[2],
-    'full_text': sys.argv[3]
-}
+import sys, json, re, socket, os
+from datetime import datetime
+
+LOG = '/tmp/riff-hook-debug.log'
+SOCK = '/tmp/riff.sock'
+
+def log(msg):
+    with open(LOG, 'a') as f:
+        f.write(f'{datetime.now()}: {msg}\n')
+
 try:
+    raw = sys.argv[1]
+    log(f'hook triggered, input length={len(raw)}')
+
+    data = json.loads(raw)
+    full_text = data.get('last_assistant_message', '')
+    cwd = data.get('cwd', os.getcwd())
+    session_id = data.get('session_id', '')
+
+    # Use session_id as unique key (truncated for readability), fall back to folder name
+    if session_id:
+        session = session_id[:8]
+    else:
+        session = os.path.basename(cwd) if cwd else 'unknown'
+
+    log(f'session={session}, session_id={session_id}, text length={len(full_text)}')
+
+    if not full_text:
+        log('no assistant message, exiting')
+        sys.exit(0)
+
+    # Extract SUMMARY line - supports optional [label] tag
+    # Format: SUMMARY [Label Here]: The actual summary text.
+    # or:     SUMMARY: The actual summary text.
+    label = None
+    match = re.search(r'SUMMARY\s*\[([^\]]+)\]\s*:\s*(.+)', full_text)
+    if match:
+        label = match.group(1).strip()
+        speak_text = match.group(2).strip()
+    else:
+        match = re.search(r'SUMMARY:\s*(.+)', full_text)
+        if match:
+            speak_text = match.group(1).strip()
+        else:
+            match = re.match(r'([^.]+\.)', full_text)
+            if match:
+                speak_text = match.group(1).strip()
+            else:
+                speak_text = full_text[:200]
+
+    # Auto-name the session if a label was provided
+    if label:
+        try:
+            ns = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            ns.settimeout(2)
+            ns.connect(SOCK)
+            ns.send((json.dumps({'type': 'set_name', 'session': session, 'name': label}) + '\n').encode())
+            ns.recv(4096)
+            ns.close()
+        except Exception:
+            pass
+
+    log(f'label={label}, speak_text={speak_text[:100]}')
+
+    if not speak_text:
+        sys.exit(0)
+
+    # Send to Riff daemon
+    msg = json.dumps({
+        'type': 'speak',
+        'text': speak_text,
+        'session': session,
+        'full_text': full_text
+    }) + '\n'
+
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(2)
-    s.connect(sys.argv[4])
-    s.send(json.dumps(msg).encode() + b'\n')
-    s.recv(4096)
+    s.connect(SOCK)
+    s.send(msg.encode())
+    resp = s.recv(4096)
     s.close()
-except Exception:
-    pass
-" "$SPEAK_TEXT" "$SESSION" "$FULL_TEXT" "$SOCKET_PATH" 2>/dev/null || true
+    log(f'sent to daemon, response={resp.decode()}')
+
+except Exception as e:
+    try:
+        with open(LOG, 'a') as f:
+            f.write(f'ERROR: {e}\n')
+    except:
+        pass
+" "$INPUT" 2>/dev/null || true
 
 exit 0
