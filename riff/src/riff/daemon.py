@@ -153,12 +153,12 @@ class RiffDaemon:
             speed = self.config.speed
 
             self.current_session = session
-            display_name = self.config.session_names.get(session, session)
-            log(f"Speaking for [{display_name}]: {text[:80]}{'...' if len(text) > 80 else ''}")
+            display_name = self.config.session_names.get(session)
+            log(f"Speaking for [{display_name or session}]: {text[:80]}{'...' if len(text) > 80 else ''}")
 
             try:
-                # Announce session name if enabled and session provided
-                if self.config.announce_sessions and session != "unknown":
+                # Only announce if we have a human-friendly name (skip UUIDs/folder names)
+                if self.config.announce_sessions and display_name:
                     announce_text = f"{display_name} says:"
                     audio_np = await loop.run_in_executor(
                         None, self._synthesize, announce_text, self.config.announcer_voice, 1.0
