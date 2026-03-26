@@ -108,13 +108,17 @@ class DaemonConnection: ObservableObject {
     }
 
     func openSettings() {
-        // Open settings window via NSApp
         if #available(macOS 14.0, *) {
             NSApp.activate()
         } else {
             NSApp.activate(ignoringOtherApps: true)
         }
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        // Try both selectors - name changed between macOS versions
+        if NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+            return
+        }
+        // Fallback for macOS 13
+        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
     }
 
     func clearAllSessions() {

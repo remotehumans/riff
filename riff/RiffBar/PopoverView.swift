@@ -36,7 +36,7 @@ struct PopoverView: View {
             footerSection
         }
         .padding(16)
-        .frame(width: 320)
+        .frame(width: 420)
         .preferredColorScheme(.dark)
     }
 
