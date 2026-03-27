@@ -116,122 +116,106 @@ class RiffDaemon:
         return audio_np.astype(np.float32)
 
     def _duck_audio(self) -> dict | None:
-        """Manage other audio before Riff speaks. Mode controlled by config.audio_mode."""
-        mode = self.config.audio_mode
-        if mode == "none":
+        """Pause system media before Riff speaks. Only pauses what's actually playing."""
+        if self.config.audio_mode == "none":
             return None
 
-        state: dict = {"mode": mode}
+        state: dict = {"paused_system": False, "paused_apps": []}
 
-        if mode == "duck":
-            # Lower system volume - affects all audio including browser
+        # Check and pause specific media apps (only if actually playing)
+        apps = [
+            ("Music",
+             'tell application "Music" to player state is playing',
+             'tell application "Music" to pause'),
+            ("Spotify",
+             'tell application "Spotify" to player state is playing',
+             'tell application "Spotify" to pause'),
+        ]
+        for app_name, check_script, pause_script in apps:
             try:
-                result = subprocess.run(
-                    ["osascript", "-e", "output volume of (get volume settings)"],
+                running = subprocess.run(
+                    ["osascript", "-e",
+                     f'tell application "System Events" to (name of processes) contains "{app_name}"'],
                     capture_output=True, text=True, timeout=2
                 )
-                original = int(result.stdout.strip())
-                ducked = max(10, int(original * 0.4))
-                subprocess.run(
-                    ["osascript", "-e", f"set volume output volume {ducked}"],
-                    capture_output=True, timeout=2
+                if "true" not in running.stdout.lower():
+                    continue
+                playing = subprocess.run(
+                    ["osascript", "-e", check_script],
+                    capture_output=True, text=True, timeout=2
                 )
-                state["original_volume"] = original
-                log(f"Audio ducked: {original} → {ducked}")
+                if "true" not in playing.stdout.lower():
+                    continue
+                subprocess.run(["osascript", "-e", pause_script], capture_output=True, timeout=2)
+                state["paused_apps"].append(app_name)
+                log(f"Paused {app_name}")
             except Exception:
                 pass
 
-        elif mode == "pause":
-            # Pause only apps that are currently playing (track which ones we paused)
-            state["paused_apps"] = []
-            apps = [
-                ("Music",
-                 'tell application "Music" to player state is playing',
-                 'tell application "Music" to pause'),
-                ("Spotify",
-                 'tell application "Spotify" to player state is playing',
-                 'tell application "Spotify" to pause'),
-            ]
-            for app_name, check_script, pause_script in apps:
-                try:
-                    # Check if app is running
-                    running = subprocess.run(
-                        ["osascript", "-e",
-                         f'tell application "System Events" to (name of processes) contains "{app_name}"'],
-                        capture_output=True, text=True, timeout=2
-                    )
-                    if "true" not in running.stdout.lower():
-                        continue
-                    # Check if actually playing
-                    playing = subprocess.run(
-                        ["osascript", "-e", check_script],
-                        capture_output=True, text=True, timeout=2
-                    )
-                    if "true" not in playing.stdout.lower():
-                        continue
-                    # Pause it
-                    subprocess.run(
-                        ["osascript", "-e", pause_script],
-                        capture_output=True, timeout=2
-                    )
-                    state["paused_apps"].append(app_name)
-                    log(f"Paused {app_name}")
-                except Exception:
-                    pass
+        # Send system media pause key (F8) to pause browser/other media players
+        # Only if no specific app was paused (avoid double-pausing)
+        if not state["paused_apps"]:
+            try:
+                # NX_KEYTYPE_PLAY = 16, simulate media play/pause key press
+                script = '''
+                    use framework "IOKit"
+                    use scripting additions
+                    set |kIOHIDEventTypeKeyboard| to 11
+                    -- Simulate F8 media key via CGEvent
+                    do shell script "osascript -e 'tell application \\"System Events\\" to key code 100'"
+                '''
+                # Simpler approach: use the media key via CGEvent
+                subprocess.run(
+                    ["osascript", "-e",
+                     'tell application "System Events" to key code 100'],
+                    capture_output=True, timeout=2
+                )
+                state["paused_system"] = True
+                log("Sent system media pause")
+            except Exception:
+                pass
 
         return state
 
     def _restore_audio(self, state: dict | None) -> None:
-        """Restore audio after Riff finishes speaking."""
+        """Resume media that was paused before speaking."""
         if not state:
             return
 
-        mode = state.get("mode", "none")
-
-        if mode == "duck":
-            original = state.get("original_volume")
-            if original is not None:
+        # Resume specific apps we paused
+        resume_scripts = {
+            "Music": 'tell application "Music" to play',
+            "Spotify": 'tell application "Spotify" to play',
+        }
+        for app_name in state.get("paused_apps", []):
+            if app_name in resume_scripts:
                 try:
                     subprocess.run(
-                        ["osascript", "-e", f"set volume output volume {original}"],
+                        ["osascript", "-e", resume_scripts[app_name]],
                         capture_output=True, timeout=2
                     )
-                    log(f"Audio restored to {original}")
+                    log(f"Resumed {app_name}")
                 except Exception:
                     pass
 
-        elif mode == "pause":
-            # Only resume apps that WE paused
-            resume_scripts = {
-                "Music": 'tell application "Music" to play',
-                "Spotify": 'tell application "Spotify" to play',
-            }
-            for app_name in state.get("paused_apps", []):
-                if app_name in resume_scripts:
-                    try:
-                        subprocess.run(
-                            ["osascript", "-e", resume_scripts[app_name]],
-                            capture_output=True, timeout=2
-                        )
-                        log(f"Resumed {app_name}")
-                    except Exception:
-                        pass
+        # Resume system media if we paused it
+        if state.get("paused_system"):
+            try:
+                subprocess.run(
+                    ["osascript", "-e",
+                     'tell application "System Events" to key code 100'],
+                    capture_output=True, timeout=2
+                )
+                log("Sent system media play")
+            except Exception:
+                pass
 
-    def _play_audio(self, audio_np: np.ndarray, duck_state: dict | None = None) -> None:
+    def _play_audio(self, audio_np: np.ndarray) -> None:
         """Play audio through sounddevice, with retry on device errors."""
-        # Compensate for ducked volume: amplify so Riff sounds at original level
-        # If system was at 94 and ducked to 40% (37), we need to boost by 94/37 ≈ 2.5x
-        boost = 1.0
-        if duck_state and duck_state.get("mode") == "duck":
-            original = duck_state.get("original_volume", 100)
-            ducked_vol = max(10, int(original * 0.4))
-            if ducked_vol > 0:
-                boost = original / ducked_vol
-
-        # Normalize to peak then apply boost
+        # Normalize audio to consistent level without distortion
         peak = np.max(np.abs(audio_np))
         if peak > 0:
-            amplified = np.clip((audio_np / peak) * 0.95 * boost, -1.0, 1.0).astype(np.float32)
+            amplified = (audio_np / peak * 0.9).astype(np.float32)
         else:
             amplified = audio_np
 
@@ -297,7 +281,7 @@ class RiffDaemon:
                         None, self._synthesize, announce_text, self.config.announcer_voice, 1.0
                     )
                     if not self.interrupted:
-                        await loop.run_in_executor(None, lambda: self._play_audio(audio_np, duck_state))
+                        await loop.run_in_executor(None, self._play_audio, audio_np)
 
                 # Speak the actual text (pass speed to Kokoro generator for proper speed control)
                 if not self.interrupted:
@@ -305,7 +289,7 @@ class RiffDaemon:
                         None, self._synthesize, text, voice, speed
                     )
                     if not self.interrupted:
-                        await loop.run_in_executor(None, lambda: self._play_audio(audio_np, duck_state))
+                        await loop.run_in_executor(None, self._play_audio, audio_np)
 
             except Exception as e:
                 log(f"Speech error: {e}")

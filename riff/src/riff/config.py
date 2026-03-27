@@ -21,7 +21,7 @@ DEFAULTS = {
     "session_names": {},
     "socket_path": "/tmp/riff.sock",
     "announce_sessions": True,
-    "audio_mode": "duck",
+    "audio_mode": "pause",
 }
 
 
@@ -36,7 +36,7 @@ class RiffConfig:
     session_names: Dict[str, str] = field(default_factory=dict)
     socket_path: str = "/tmp/riff.sock"
     announce_sessions: bool = True
-    audio_mode: str = "duck"  # "duck" (lower volume), "pause" (pause media), or "none"
+    audio_mode: str = "pause"  # "pause" (pause media while speaking), or "none"
 
     @classmethod
     def load(cls, path: Path | None = None) -> RiffConfig:
