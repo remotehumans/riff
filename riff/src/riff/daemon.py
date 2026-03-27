@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -114,6 +115,35 @@ class RiffDaemon:
 
         return audio_np.astype(np.float32)
 
+    def _duck_audio(self) -> float | None:
+        """Lower system volume for other audio. Returns original volume to restore later."""
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "output volume of (get volume settings)"],
+                capture_output=True, text=True, timeout=2
+            )
+            original = int(result.stdout.strip())
+            # Duck to 15% of original (minimum 5)
+            ducked = max(5, int(original * 0.15))
+            subprocess.run(
+                ["osascript", "-e", f"set volume output volume {ducked}"],
+                capture_output=True, timeout=2
+            )
+            return original
+        except Exception:
+            return None
+
+    def _restore_audio(self, volume: float | None) -> None:
+        """Restore system volume after ducking."""
+        if volume is not None:
+            try:
+                subprocess.run(
+                    ["osascript", "-e", f"set volume output volume {int(volume)}"],
+                    capture_output=True, timeout=2
+                )
+            except Exception:
+                pass
+
     def _play_audio(self, audio_np: np.ndarray) -> None:
         """Play audio through sounddevice, with retry on device errors."""
         max_retries = 3
@@ -166,7 +196,11 @@ class RiffDaemon:
             display_name = self.config.session_names.get(session)
             log(f"Speaking for [{display_name or session}]: {text[:80]}{'...' if len(text) > 80 else ''}")
 
+            original_volume = None
             try:
+                # Duck other audio before speaking
+                original_volume = await loop.run_in_executor(None, self._duck_audio)
+
                 # Only announce if we have a human-friendly name (skip UUIDs/folder names)
                 if self.config.announce_sessions and display_name:
                     announce_text = f"{display_name} says:"
@@ -187,6 +221,8 @@ class RiffDaemon:
             except Exception as e:
                 log(f"Speech error: {e}")
             finally:
+                # Restore audio volume
+                await loop.run_in_executor(None, self._restore_audio, original_volume)
                 self.speaking = False
                 self.current_session = None
                 self.queue.task_done()
