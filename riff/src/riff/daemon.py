@@ -152,14 +152,20 @@ class RiffDaemon:
             except Exception:
                 pass
 
-        # Pause browser media via JavaScript injection
+        # Pause browser media via JavaScript injection - only if something is actually playing
         browsers = [
-            ("Arc", 'tell application "Arc" to tell front window to tell active tab to execute javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.pause())"'),
-            ("Google Chrome", 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.pause())"'),
-            ("Safari", 'tell application "Safari" to do JavaScript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.pause())" in front document'),
+            ("Arc",
+             'tell application "Arc" to tell front window to tell active tab to execute javascript "Array.from(document.querySelectorAll(\\"video, audio\\")).some(m => !m.paused)"',
+             'tell application "Arc" to tell front window to tell active tab to execute javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => { if(!m.paused) m.pause() })"'),
+            ("Google Chrome",
+             'tell application "Google Chrome" to execute active tab of front window javascript "Array.from(document.querySelectorAll(\\"video, audio\\")).some(m => !m.paused)"',
+             'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => { if(!m.paused) m.pause() })"'),
+            ("Safari",
+             'tell application "Safari" to do JavaScript "Array.from(document.querySelectorAll(\\"video, audio\\")).some(m => !m.paused)" in front document',
+             'tell application "Safari" to do JavaScript "document.querySelectorAll(\\"video, audio\\").forEach(m => { if(!m.paused) m.pause() })" in front document'),
         ]
         state["paused_browsers"] = []
-        for browser_name, pause_script in browsers:
+        for browser_name, check_script, pause_script in browsers:
             try:
                 running = subprocess.run(
                     ["osascript", "-e",
@@ -168,6 +174,14 @@ class RiffDaemon:
                 )
                 if "true" not in running.stdout.lower():
                     continue
+                # Check if any media is actually playing
+                playing = subprocess.run(
+                    ["osascript", "-e", check_script],
+                    capture_output=True, text=True, timeout=2
+                )
+                if "true" not in playing.stdout.lower():
+                    continue
+                # Media is playing - pause it
                 subprocess.run(
                     ["osascript", "-e", pause_script],
                     capture_output=True, timeout=2
