@@ -217,13 +217,21 @@ class RiffDaemon:
                     except Exception:
                         pass
 
-    def _play_audio(self, audio_np: np.ndarray) -> None:
+    def _play_audio(self, audio_np: np.ndarray, duck_state: dict | None = None) -> None:
         """Play audio through sounddevice, with retry on device errors."""
-        # Amplify audio to compensate for ducked system volume
-        # Normalize to max volume then clip to prevent distortion
+        # Compensate for ducked volume: amplify so Riff sounds at original level
+        # If system was at 94 and ducked to 40% (37), we need to boost by 94/37 ≈ 2.5x
+        boost = 1.0
+        if duck_state and duck_state.get("mode") == "duck":
+            original = duck_state.get("original_volume", 100)
+            ducked_vol = max(10, int(original * 0.4))
+            if ducked_vol > 0:
+                boost = original / ducked_vol
+
+        # Normalize to peak then apply boost
         peak = np.max(np.abs(audio_np))
         if peak > 0:
-            amplified = np.clip(audio_np / peak * 0.95, -1.0, 1.0).astype(np.float32)
+            amplified = np.clip((audio_np / peak) * 0.95 * boost, -1.0, 1.0).astype(np.float32)
         else:
             amplified = audio_np
 
@@ -289,7 +297,7 @@ class RiffDaemon:
                         None, self._synthesize, announce_text, self.config.announcer_voice, 1.0
                     )
                     if not self.interrupted:
-                        await loop.run_in_executor(None, self._play_audio, audio_np)
+                        await loop.run_in_executor(None, lambda: self._play_audio(audio_np, duck_state))
 
                 # Speak the actual text (pass speed to Kokoro generator for proper speed control)
                 if not self.interrupted:
@@ -297,7 +305,7 @@ class RiffDaemon:
                         None, self._synthesize, text, voice, speed
                     )
                     if not self.interrupted:
-                        await loop.run_in_executor(None, self._play_audio, audio_np)
+                        await loop.run_in_executor(None, lambda: self._play_audio(audio_np, duck_state))
 
             except Exception as e:
                 log(f"Speech error: {e}")
