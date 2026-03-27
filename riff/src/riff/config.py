@@ -21,6 +21,7 @@ DEFAULTS = {
     "session_names": {},
     "socket_path": "/tmp/riff.sock",
     "announce_sessions": True,
+    "audio_mode": "duck",
 }
 
 
@@ -35,6 +36,7 @@ class RiffConfig:
     session_names: Dict[str, str] = field(default_factory=dict)
     socket_path: str = "/tmp/riff.sock"
     announce_sessions: bool = True
+    audio_mode: str = "duck"  # "duck" (lower volume), "pause" (pause media), or "none"
 
     @classmethod
     def load(cls, path: Path | None = None) -> RiffConfig:
@@ -60,6 +62,7 @@ class RiffConfig:
             session_names=merged.get("session_names", {}),
             socket_path=merged["socket_path"],
             announce_sessions=merged["announce_sessions"],
+            audio_mode=merged.get("audio_mode", "duck"),
         )
 
     def save(self, path: Path | None = None) -> None:

@@ -115,41 +115,122 @@ class RiffDaemon:
 
         return audio_np.astype(np.float32)
 
-    def _duck_audio(self) -> float | None:
-        """Lower system volume for other audio. Returns original volume to restore later."""
-        try:
-            result = subprocess.run(
-                ["osascript", "-e", "output volume of (get volume settings)"],
-                capture_output=True, text=True, timeout=2
-            )
-            original = int(result.stdout.strip())
-            # Duck to 15% of original (minimum 5)
-            ducked = max(5, int(original * 0.15))
-            subprocess.run(
-                ["osascript", "-e", f"set volume output volume {ducked}"],
-                capture_output=True, timeout=2
-            )
-            return original
-        except Exception:
+    def _duck_audio(self) -> dict | None:
+        """Manage other audio before Riff speaks. Mode controlled by config.audio_mode."""
+        mode = self.config.audio_mode
+        if mode == "none":
             return None
 
-    def _restore_audio(self, volume: float | None) -> None:
-        """Restore system volume after ducking."""
-        if volume is not None:
+        state: dict = {"mode": mode}
+
+        if mode == "duck":
+            # Lower system volume - affects all audio including browser
             try:
+                result = subprocess.run(
+                    ["osascript", "-e", "output volume of (get volume settings)"],
+                    capture_output=True, text=True, timeout=2
+                )
+                original = int(result.stdout.strip())
+                ducked = max(10, int(original * 0.4))
                 subprocess.run(
-                    ["osascript", "-e", f"set volume output volume {int(volume)}"],
+                    ["osascript", "-e", f"set volume output volume {ducked}"],
                     capture_output=True, timeout=2
                 )
+                state["original_volume"] = original
+                log(f"Audio ducked: {original} → {ducked}")
             except Exception:
                 pass
 
+        elif mode == "pause":
+            # Pause only apps that are currently playing (track which ones we paused)
+            state["paused_apps"] = []
+            apps = [
+                ("Music",
+                 'tell application "Music" to player state is playing',
+                 'tell application "Music" to pause'),
+                ("Spotify",
+                 'tell application "Spotify" to player state is playing',
+                 'tell application "Spotify" to pause'),
+            ]
+            for app_name, check_script, pause_script in apps:
+                try:
+                    # Check if app is running
+                    running = subprocess.run(
+                        ["osascript", "-e",
+                         f'tell application "System Events" to (name of processes) contains "{app_name}"'],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    if "true" not in running.stdout.lower():
+                        continue
+                    # Check if actually playing
+                    playing = subprocess.run(
+                        ["osascript", "-e", check_script],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    if "true" not in playing.stdout.lower():
+                        continue
+                    # Pause it
+                    subprocess.run(
+                        ["osascript", "-e", pause_script],
+                        capture_output=True, timeout=2
+                    )
+                    state["paused_apps"].append(app_name)
+                    log(f"Paused {app_name}")
+                except Exception:
+                    pass
+
+        return state
+
+    def _restore_audio(self, state: dict | None) -> None:
+        """Restore audio after Riff finishes speaking."""
+        if not state:
+            return
+
+        mode = state.get("mode", "none")
+
+        if mode == "duck":
+            original = state.get("original_volume")
+            if original is not None:
+                try:
+                    subprocess.run(
+                        ["osascript", "-e", f"set volume output volume {original}"],
+                        capture_output=True, timeout=2
+                    )
+                    log(f"Audio restored to {original}")
+                except Exception:
+                    pass
+
+        elif mode == "pause":
+            # Only resume apps that WE paused
+            resume_scripts = {
+                "Music": 'tell application "Music" to play',
+                "Spotify": 'tell application "Spotify" to play',
+            }
+            for app_name in state.get("paused_apps", []):
+                if app_name in resume_scripts:
+                    try:
+                        subprocess.run(
+                            ["osascript", "-e", resume_scripts[app_name]],
+                            capture_output=True, timeout=2
+                        )
+                        log(f"Resumed {app_name}")
+                    except Exception:
+                        pass
+
     def _play_audio(self, audio_np: np.ndarray) -> None:
         """Play audio through sounddevice, with retry on device errors."""
+        # Amplify audio to compensate for ducked system volume
+        # Normalize to max volume then clip to prevent distortion
+        peak = np.max(np.abs(audio_np))
+        if peak > 0:
+            amplified = np.clip(audio_np / peak * 0.95, -1.0, 1.0).astype(np.float32)
+        else:
+            amplified = audio_np
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                sd.play(audio_np, samplerate=24000)
+                sd.play(amplified, samplerate=24000)
 
                 # Wait for playback to finish, checking interrupt flag periodically
                 stream = sd.get_stream()
@@ -196,10 +277,10 @@ class RiffDaemon:
             display_name = self.config.session_names.get(session)
             log(f"Speaking for [{display_name or session}]: {text[:80]}{'...' if len(text) > 80 else ''}")
 
-            original_volume = None
+            duck_state = None
             try:
-                # Duck other audio before speaking
-                original_volume = await loop.run_in_executor(None, self._duck_audio)
+                # Duck or pause other audio before speaking
+                duck_state = await loop.run_in_executor(None, self._duck_audio)
 
                 # Only announce if we have a human-friendly name (skip UUIDs/folder names)
                 if self.config.announce_sessions and display_name:
@@ -221,8 +302,8 @@ class RiffDaemon:
             except Exception as e:
                 log(f"Speech error: {e}")
             finally:
-                # Restore audio volume
-                await loop.run_in_executor(None, self._restore_audio, original_volume)
+                # Restore media playback and volume
+                await loop.run_in_executor(None, self._restore_audio, duck_state)
                 self.speaking = False
                 self.current_session = None
                 self.queue.task_done()
