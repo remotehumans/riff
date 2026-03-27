@@ -152,26 +152,28 @@ class RiffDaemon:
             except Exception:
                 pass
 
-        # Send system media pause key (F8) to pause browser/other media players
-        # Only if no specific app was paused (avoid double-pausing)
-        if not state["paused_apps"]:
+        # Pause browser media via JavaScript injection
+        browsers = [
+            ("Arc", 'tell application "Arc" to tell front window to tell active tab to execute javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.pause())"'),
+            ("Google Chrome", 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.pause())"'),
+            ("Safari", 'tell application "Safari" to do JavaScript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.pause())" in front document'),
+        ]
+        state["paused_browsers"] = []
+        for browser_name, pause_script in browsers:
             try:
-                # NX_KEYTYPE_PLAY = 16, simulate media play/pause key press
-                script = '''
-                    use framework "IOKit"
-                    use scripting additions
-                    set |kIOHIDEventTypeKeyboard| to 11
-                    -- Simulate F8 media key via CGEvent
-                    do shell script "osascript -e 'tell application \\"System Events\\" to key code 100'"
-                '''
-                # Simpler approach: use the media key via CGEvent
-                subprocess.run(
+                running = subprocess.run(
                     ["osascript", "-e",
-                     'tell application "System Events" to key code 100'],
+                     f'tell application "System Events" to (name of processes) contains "{browser_name}"'],
+                    capture_output=True, text=True, timeout=2
+                )
+                if "true" not in running.stdout.lower():
+                    continue
+                subprocess.run(
+                    ["osascript", "-e", pause_script],
                     capture_output=True, timeout=2
                 )
-                state["paused_system"] = True
-                log("Sent system media pause")
+                state["paused_browsers"].append(browser_name)
+                log(f"Paused browser media: {browser_name}")
             except Exception:
                 pass
 
@@ -198,17 +200,22 @@ class RiffDaemon:
                 except Exception:
                     pass
 
-        # Resume system media if we paused it
-        if state.get("paused_system"):
-            try:
-                subprocess.run(
-                    ["osascript", "-e",
-                     'tell application "System Events" to key code 100'],
-                    capture_output=True, timeout=2
-                )
-                log("Sent system media play")
-            except Exception:
-                pass
+        # Resume browser media we paused
+        browser_resume = {
+            "Arc": 'tell application "Arc" to tell front window to tell active tab to execute javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.play())"',
+            "Google Chrome": 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.play())"',
+            "Safari": 'tell application "Safari" to do JavaScript "document.querySelectorAll(\\"video, audio\\").forEach(m => m.play())" in front document',
+        }
+        for browser_name in state.get("paused_browsers", []):
+            if browser_name in browser_resume:
+                try:
+                    subprocess.run(
+                        ["osascript", "-e", browser_resume[browser_name]],
+                        capture_output=True, timeout=2
+                    )
+                    log(f"Resumed browser media: {browser_name}")
+                except Exception:
+                    pass
 
     def _play_audio(self, audio_np: np.ndarray) -> None:
         """Play audio through sounddevice, with retry on device errors."""
