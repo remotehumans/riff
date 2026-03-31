@@ -72,9 +72,9 @@ Most people start with **Riff Bridge** - it's the core "walk around and talk to 
 
 ## Built by Remote Humans
 
-Riff is built by [Remote Humans](https://www.remotehumans.ai/) - we help business owners and leaders actually use AI in their day-to-day work, not just talk about it.
+Riff is built by [Remote Humans](https://www.remotehumans.ai/). We help business owners and leaders become AI-native - using AI across their business to stay ahead, reduce costs, grow faster, and work more efficiently.
 
-- **[Leader Lab](https://www.remotehumans.ai/leader-lab)** - 1:1 AI coaching for business owners and leaders who want to work with AI the way we do
+- **[Leader Lab](https://www.remotehumans.ai/leader-lab)** - 1:1 and group AI coaching that gets business owners and leaders hands-on with AI in their actual work
 - **[Build & Embed](https://www.remotehumans.ai/build-embed)** - We build custom AI workflows and tools directly into your business
 
 ## Licence
