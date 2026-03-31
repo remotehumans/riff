@@ -9,7 +9,7 @@
 	<string>co.remotehumans.riff</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/elliott/Documents/AI Projects_local/voice-ai/riff/.venv/bin/python3</string>
+		<string>__INSTALL_DIR__/.venv/bin/python3</string>
 		<string>-m</string>
 		<string>riff.daemon</string>
 	</array>
@@ -18,7 +18,7 @@
 	<key>RunAtLoad</key>
 	<true/>
 	<key>WorkingDirectory</key>
-	<string>/Users/elliott/Documents/AI Projects_local/voice-ai/riff</string>
+	<string>__INSTALL_DIR__</string>
 	<key>StandardOutPath</key>
 	<string>/tmp/riff.log</string>
 	<key>StandardErrorPath</key>

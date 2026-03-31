@@ -18,7 +18,7 @@ install: all bar
 	mkdir -p $(CONFIG_DIR)
 	@test -f $(CONFIG_DIR)/config.json || cp config.default.json $(CONFIG_DIR)/config.json
 	mkdir -p $(AGENT_DIR)
-	cp $(PLIST) $(AGENT_DIR)/$(PLIST)
+	sed 's|__INSTALL_DIR__|$(CURDIR)|g' $(PLIST) > $(AGENT_DIR)/$(PLIST)
 	-launchctl bootout gui/$$(id -u) $(AGENT_DIR)/$(PLIST) 2>/dev/null
 	launchctl bootstrap gui/$$(id -u) $(AGENT_DIR)/$(PLIST)
 	mkdir -p $(HOME)/.local/bin

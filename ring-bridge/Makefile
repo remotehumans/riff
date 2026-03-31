@@ -19,9 +19,8 @@ sign:
 	codesign --sign "$(IDENTITY)" --options runtime $(BINARY) || echo "WARNING: Signing failed — run 'security unlock-keychain' if keychain is locked"
 
 install: all
-	cp $(BINARY) $(CURDIR)/$(BINARY)
 	mkdir -p $(AGENT_DIR)
-	cp $(PLIST) $(AGENT_DIR)/$(PLIST)
+	sed 's|__INSTALL_DIR__|$(CURDIR)|g' $(PLIST) > $(AGENT_DIR)/$(PLIST)
 	-launchctl bootout gui/$$(id -u) $(AGENT_DIR)/$(PLIST) 2>/dev/null
 	launchctl bootstrap gui/$$(id -u) $(AGENT_DIR)/$(PLIST)
 
