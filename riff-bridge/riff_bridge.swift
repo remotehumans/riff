@@ -3,8 +3,9 @@ import CoreGraphics
 import IOKit
 import IOKit.hid
 
-// ABOUTME: JX-11 ring to keyboard bridge daemon for voice AI interaction.
+// ABOUTME: Smart ring to keyboard bridge daemon for voice AI interaction.
 // ABOUTME: Maps tap, swipes (X/Y axis), and short touch to keyboard/scroll events.
+// ABOUTME: Supports multiple ring models (JX-11, JX-13) via device registry.
 
 // --- Strategy ---
 // IOKit HID Manager matches the ring by VendorID/ProductID (reliable across reconnects).
@@ -16,12 +17,25 @@ import IOKit.hid
 // RingBridge state is NOT thread-safe beyond this single-thread contract.
 // Only lastRingIOKitEventTime uses os_unfair_lock (shared between IOKit and CGEvent callbacks).
 
-// --- Constants ---
+// --- Supported Devices ---
+// Add new rings here. Run `system_profiler SPBluetoothDataType` to find Vendor/Product IDs.
 
-let kJX11VendorID: Int = 0x05AC
-let kJX11ProductID: Int = 0x0220
-// Known serial number for the ring — reject unknown devices matching the same VID/PID
-let kJX11ExpectedName: String = "JX-11"
+struct RingDevice {
+    let name: String
+    let vendorID: Int
+    let productID: Int
+}
+
+let supportedRings: [RingDevice] = [
+    RingDevice(name: "JX-11", vendorID: 0x05AC, productID: 0x0220),
+    RingDevice(name: "JX-13", vendorID: 0x248A, productID: 0x8251),
+    // To add a new ring:
+    // 1. Pair it via Bluetooth
+    // 2. Run: system_profiler SPBluetoothDataType | grep -A 5 "YourRing"
+    // 3. Add: RingDevice(name: "YourRing", vendorID: 0xXXXX, productID: 0xYYYY),
+]
+
+// --- Constants ---
 
 // HID usage pages
 let kConsumerControlPage: UInt32 = 0x0C
@@ -312,10 +326,72 @@ class RingBridge {
     }
 }
 
+// --- Device Selection ---
+// Match the first supported ring found, or accept --ring <name> argument.
+
+func selectRing() -> RingDevice? {
+    // Check for --ring argument
+    let args = CommandLine.arguments
+    if let idx = args.firstIndex(of: "--ring"), idx + 1 < args.count {
+        let requested = args[idx + 1]
+        if let ring = supportedRings.first(where: { $0.name.lowercased() == requested.lowercased() }) {
+            return ring
+        }
+        print("ERROR: Unknown ring '\(requested)'. Supported: \(supportedRings.map(\.name).joined(separator: ", "))")
+        exit(1)
+    }
+
+    // Auto-detect: try each supported ring and see which is connected
+    let tempManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+    defer { IOHIDManagerClose(tempManager, IOOptionBits(kIOHIDOptionsTypeNone)) }
+
+    for ring in supportedRings {
+        let match: [String: Any] = [
+            kIOHIDVendorIDKey: ring.vendorID,
+            kIOHIDProductIDKey: ring.productID
+        ]
+        IOHIDManagerSetDeviceMatching(tempManager, match as CFDictionary)
+        IOHIDManagerScheduleWithRunLoop(tempManager, CFRunLoopGetCurrent(), CFRunLoopMode.commonModes.rawValue)
+        IOHIDManagerOpen(tempManager, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        if let devices = IOHIDManagerCopyDevices(tempManager) as? Set<IOHIDDevice>, !devices.isEmpty {
+            IOHIDManagerClose(tempManager, IOOptionBits(kIOHIDOptionsTypeNone))
+            return ring
+        }
+        IOHIDManagerClose(tempManager, IOOptionBits(kIOHIDOptionsTypeNone))
+    }
+
+    return nil
+}
+
 // --- Main ---
 // All callbacks and timers are scheduled on the main CFRunLoop.
 
 setbuf(stdout, nil)
+
+// Handle --list flag
+if CommandLine.arguments.contains("--list") {
+    print("Supported rings:")
+    for ring in supportedRings {
+        print("  \(ring.name)  VendorID: \(String(format: "0x%04X", ring.vendorID))  ProductID: \(String(format: "0x%04X", ring.productID))")
+    }
+    exit(0)
+}
+
+guard let selectedRing = selectRing() else {
+    print("ERROR: No supported ring detected.")
+    print("Supported rings:")
+    for ring in supportedRings {
+        print("  \(ring.name)  VendorID: \(String(format: "0x%04X", ring.vendorID))  ProductID: \(String(format: "0x%04X", ring.productID))")
+    }
+    print("")
+    print("Make sure your ring is paired in Bluetooth settings.")
+    print("To force a specific ring: riff-bridge --ring JX-13")
+    print("To find your ring's IDs: system_profiler SPBluetoothDataType | grep -A 5 \"YourRing\"")
+    exit(1)
+}
+
+print("[\(ts())] Selected ring: \(selectedRing.name) (VendorID: \(String(format: "0x%04X", selectedRing.vendorID)), ProductID: \(String(format: "0x%04X", selectedRing.productID)))")
 
 let bridge = RingBridge()
 bridge.releaseOption()
@@ -326,8 +402,8 @@ bridge.releaseOption()
 
 let hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 let matchDict: [String: Any] = [
-    kIOHIDVendorIDKey: kJX11VendorID,
-    kIOHIDProductIDKey: kJX11ProductID
+    kIOHIDVendorIDKey: selectedRing.vendorID,
+    kIOHIDProductIDKey: selectedRing.productID
 ]
 IOHIDManagerSetDeviceMatching(hidManager, matchDict as CFDictionary)
 
@@ -500,7 +576,7 @@ healthTimer.resume()
 // --- Banner ---
 
 print("========================================")
-print("  JX-11 Ring -> FluidVoice Bridge")
+print("  Riff Bridge — \(selectedRing.name)")
 print("========================================")
 print("Tap ring:    toggle Left Option (push-to-talk)")
 print("  1st tap  = START recording")
@@ -512,7 +588,7 @@ print("Swipe down:  Scroll down")
 print("Short touch: Escape (interrupt agent)")
 print("Mute blocked. Keyboard volume keys unaffected.")
 print("")
-print("Device detection: IOKit HID (VendorID/ProductID + name validation)")
+print("Usage: riff-bridge [--ring JX-11|JX-13] [--list]")
 print("Health check: every 5s")
 print("Running... (Ctrl+C to stop)")
 
