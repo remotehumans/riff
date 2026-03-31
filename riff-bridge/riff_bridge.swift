@@ -154,15 +154,15 @@ class RingBridge {
         guard now.timeIntervalSince(lastOptionTime) > kTapDebounce else { return }
         lastOptionTime = now
 
-        if optionHeld {
-            releaseOption()
-            optionHeld = false
-            print("[\(ts())] STOP recording (Option released)")
-        } else {
-            pressOption()
-            optionHeld = true
-            print("[\(ts())] START recording (Option pressed)")
-        }
+        // Send a quick press+release (tap) each time.
+        // FluidVoice uses toggle mode: first tap starts recording, second tap stops.
+        // Holding the key down doesn't work with toggle-based voice apps.
+        optionHeld = !optionHeld
+        let label = optionHeld ? "START" : "STOP"
+        pressOption()
+        usleep(50_000)  // 50ms hold — enough for the app to register the keypress
+        releaseOption()
+        print("[\(ts())] \(label) recording (Option tapped)")
     }
 
     func swipeStart() {
