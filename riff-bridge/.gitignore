@@ -1,8 +1,8 @@
-# ABOUTME: Gitignore for JX-11 Ring Bridge project.
+# ABOUTME: Gitignore for Riff Bridge project.
 # ABOUTME: Excludes compiled binary and temporary capture scripts.
 
 # Compiled binary
-jx11-bridge
+riff-bridge
 
 # Temporary capture/debug scripts
 /tmp/

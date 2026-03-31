@@ -1,4 +1,4 @@
-# JX-11 Smart Ring Bridge
+# Riff Bridge - Smart Ring Controller
 
 ![Voice AI Workflow - Walk around, think out loud, build with AI](voice-ai-workflow-nb.jpg)
 
@@ -48,7 +48,7 @@ Put the JX-11 ring in pairing mode and connect it via Mac Bluetooth settings. It
 ### 2. Build the bridge
 
 ```bash
-cd ring-bridge
+cd riff-bridge
 make all
 ```
 
@@ -61,7 +61,7 @@ The bridge needs two macOS permissions:
 - **Input Monitoring** - to read the ring's button presses
 - **Accessibility** - to send keyboard events to other apps
 
-Go to System Settings > Privacy & Security and add the `jx11-bridge` binary to both lists.
+Go to System Settings > Privacy & Security and add the `riff-bridge` binary to both lists.
 
 ### 4. Install as a background service
 
@@ -69,21 +69,21 @@ Go to System Settings > Privacy & Security and add the `jx11-bridge` binary to b
 make install
 ```
 
-This copies the binary and sets up a LaunchAgent so the bridge starts automatically when you log in and restarts if it crashes.
+This sets up a LaunchAgent so the bridge starts automatically when you log in and restarts if it crashes.
 
 ### 5. Check it's running
 
 ```bash
-tail -f /tmp/jx11-bridge.log
+tail -f /tmp/riff-bridge.log
 ```
 
 You should see "Ring connected" and a list of available controls.
 
 ## Workflow
 
-1. Put on the ring and clip on your wireless mic
+1. Put on the ring (and optionally clip on a wireless mic)
 2. Open any app you want to talk to - a coding agent, chat interface, notes app, email, anything
-3. Walk away from your desk
+3. Step back from your desk (or walk away if you have a wireless mic)
 4. **Tap the ring** to start recording your voice
 5. Speak naturally ("Create a new API endpoint for user profiles...")
 6. **Tap again** to stop recording - your voice-to-text app transcribes it
@@ -98,7 +98,7 @@ You should see "Ring connected" and a list of available controls.
 
 **Keys not working**: Check Input Monitoring and Accessibility permissions in System Settings > Privacy & Security.
 
-**Bridge not starting**: Run `tail -f /tmp/jx11-bridge.log` to see error messages.
+**Bridge not starting**: Run `tail -f /tmp/riff-bridge.log` to see error messages.
 
 **Scroll not working in terminal**: Make sure tmux has mouse mode enabled (`set -g mouse on` in your `.tmux.conf`).
 
@@ -106,15 +106,15 @@ You should see "Ring connected" and a list of available controls.
 
 | File | What it does |
 |---|---|
-| `jx11_bridge.swift` | The main daemon code |
+| `riff_bridge.swift` | The main daemon code |
 | `Makefile` | Build, sign, and install commands |
-| `co.remotehumans.jx11-bridge.plist` | LaunchAgent config (auto-start on login) |
+| `co.remotehumans.riff-bridge.plist` | LaunchAgent config (auto-start on login) |
 
 ## Customising the Controls
 
 Every gesture mapping in this bridge is customisable. The defaults (Option key for voice toggle, Enter to send, etc.) are just what worked for one particular setup - you can change any of them to match your workflow.
 
-The mappings live in `jx11_bridge.swift` and are straightforward to modify. If you use an AI coding agent like [Claude Code](https://claude.com/claude-code), you can point it at this repo and ask it to change the mappings for you - for example, "change the tap gesture to trigger Cmd+Shift+A instead of Option" or "make the right swipe send Cmd+Enter instead of Enter". The code is intentionally simple so that AI agents (or you) can modify it easily.
+The mappings live in `riff_bridge.swift` and are straightforward to modify. If you use an AI coding agent like [Claude Code](https://claude.com/claude-code), you can point it at this repo and ask it to change the mappings for you - for example, "change the tap gesture to trigger Cmd+Shift+A instead of Option" or "make the right swipe send Cmd+Enter instead of Enter". The code is intentionally simple so that AI agents (or you) can modify it easily.
 
 **Common customisations:**
 - Change the push-to-talk key to match your voice-to-text app's shortcut

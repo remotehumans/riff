@@ -6,7 +6,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>co.remotehumans.riff</string>
+	<string>co.remotehumans.riff-voice</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>__INSTALL_DIR__/.venv/bin/python3</string>

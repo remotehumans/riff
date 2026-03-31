@@ -3,7 +3,8 @@
 # ABOUTME: Reads hook JSON from stdin and delegates to riff-hook-processor.py.
 
 SOCKET_PATH="/tmp/riff.sock"
-PROCESSOR="$HOME/Documents/AI Projects_local/voice-ai/riff/riff-hook-processor.py"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROCESSOR="$SCRIPT_DIR/riff-hook-processor.py"
 
 # Bail early if daemon socket or processor doesn't exist
 [ ! -S "$SOCKET_PATH" ] && exit 0

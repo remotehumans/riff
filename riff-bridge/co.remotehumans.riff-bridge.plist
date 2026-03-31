@@ -1,23 +1,23 @@
-<!-- ABOUTME: LaunchAgent plist for the jx11-bridge binary. -->
-<!-- ABOUTME: Keeps the bridge running at load, logging to /tmp/jx11-bridge.log. -->
+<!-- ABOUTME: LaunchAgent plist for the riff-bridge binary. -->
+<!-- ABOUTME: Keeps the bridge running at load, logging to /tmp/riff-bridge.log. -->
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>co.remotehumans.jx11-bridge</string>
+	<string>co.remotehumans.riff-bridge</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>__INSTALL_DIR__/jx11-bridge</string>
+		<string>__INSTALL_DIR__/riff-bridge</string>
 	</array>
 	<key>KeepAlive</key>
 	<true/>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardOutPath</key>
-	<string>/tmp/jx11-bridge.log</string>
+	<string>/tmp/riff-bridge.log</string>
 	<key>StandardErrorPath</key>
-	<string>/tmp/jx11-bridge.log</string>
+	<string>/tmp/riff-bridge.log</string>
 </dict>
 </plist>

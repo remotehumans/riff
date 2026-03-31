@@ -2,8 +2,8 @@
 # ABOUTME: Targets: install (deps + LaunchAgent + symlinks), clean, uninstall, restart, logs.
 
 AGENT_DIR = $(HOME)/Library/LaunchAgents
-PLIST = co.remotehumans.riff.plist
-LABEL = co.remotehumans.riff
+PLIST = co.remotehumans.riff-voice.plist
+LABEL = co.remotehumans.riff-voice
 BAR_PLIST = co.remotehumans.riff-bar.plist
 BAR_LABEL = co.remotehumans.riff-bar
 CONFIG_DIR = $(HOME)/.config/riff

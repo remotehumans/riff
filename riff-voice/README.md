@@ -1,6 +1,6 @@
-# Riff - Voice Narrator for AI Agents
+# Riff Voice - Voice Narrator for AI Agents
 
-Riff gives your AI coding agents a voice. It runs a local daemon that listens on a Unix socket for text-to-speech requests and speaks them aloud using Kokoro TTS via MLX on Apple Silicon. Claude Code hooks trigger narration automatically when your agent starts tasks, finishes work, or hits errors - so you can walk away from your desk and still know what's happening.
+Riff Voice gives your AI agents a voice. It runs a local daemon that listens on a Unix socket for text-to-speech requests and speaks them aloud using Kokoro TTS via MLX on Apple Silicon. Claude Code hooks trigger narration automatically when your agent starts tasks, finishes work, or hits errors - so you can walk away from your desk and still know what's happening.
 
 ## How It Works
 
@@ -14,7 +14,7 @@ Kokoro TTS runs entirely on-device using MLX (Apple Neural Engine) - no API keys
 ## Quick Start
 
 ```bash
-cd riff
+cd riff-voice
 make install
 ```
 
@@ -58,6 +58,6 @@ Riff ships with access to all 54 Kokoro voices. Voice IDs follow the pattern `{l
 | `src/riff/` | Python package (daemon, CLI, TTS engine) |
 | `hooks/riff-hook.sh` | Claude Code hook for agent lifecycle narration |
 | `config.default.json` | Default configuration template |
-| `co.remotehumans.riff.plist` | LaunchAgent config (auto-start on login) |
+| `co.remotehumans.riff-voice.plist` | LaunchAgent config (auto-start on login) |
 | `Makefile` | Install, uninstall, and management commands |
 | `pyproject.toml` | UV project config and dependencies |

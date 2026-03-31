@@ -1,11 +1,11 @@
-# ABOUTME: Makefile for building and code-signing the jx11-bridge Swift binary.
+# ABOUTME: Makefile for building and code-signing the riff-bridge Swift binary.
 # ABOUTME: Targets: build, sign, all (default), install (deploy + restart LaunchAgent), clean.
 
-BINARY = jx11-bridge
-SOURCE = jx11_bridge.swift
+BINARY = riff-bridge
+SOURCE = riff_bridge.swift
 IDENTITY = Apple Development
-PLIST = co.remotehumans.jx11-bridge.plist
-AGENT_LABEL = co.remotehumans.jx11-bridge
+PLIST = co.remotehumans.riff-bridge.plist
+AGENT_LABEL = co.remotehumans.riff-bridge
 AGENT_DIR = $(HOME)/Library/LaunchAgents
 
 .PHONY: all build sign install clean

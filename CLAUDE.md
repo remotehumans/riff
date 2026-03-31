@@ -1,18 +1,18 @@
-# Voice AI
+# Riff
 
-Monorepo for voice AI components — smart ring input, transcription, and voice-driven workflows.
+Monorepo for hands-free AI interaction — smart ring input and voice narrator.
 
 ## Components
 
-### ring-bridge
-macOS daemon that bridges a JX-11 smart ring (BLE HID) to keyboard events for voice AI interaction.
-- **Tap**: Toggle Left Option key (FluidVoice push-to-talk)
+### riff-bridge
+macOS daemon that bridges a JX-11 smart ring (BLE HID) to keyboard events for hands-free voice interaction.
+- **Tap**: Toggle Left Option key (voice-to-text push-to-talk)
 - **Swipe right**: Enter key (submit messages)
 - **Swipe left**: Backspace/Delete
 
 Uses IOKit HID Manager for device-specific detection (VendorID/ProductID) and CGEvent tap to block default media key behavior.
 
-### riff
+### riff-voice
 Voice narrator daemon that speaks AI agent output aloud using MLX-Audio Kokoro TTS.
 - **FIFO queue**: Multiple sessions send text, one voice at a time
 - **Per-agent voices**: 54 Kokoro presets mapped by project directory
@@ -24,23 +24,23 @@ Socket protocol over `/tmp/riff.sock`. Claude Code Stop hook auto-sends summarie
 
 ## Build & Run
 
-### ring-bridge
+### riff-bridge
 ```bash
-cd ring-bridge
-swiftc jx11_bridge.swift -o jx11-bridge -framework CoreGraphics -framework IOKit
-./jx11-bridge
+cd riff-bridge
+swiftc riff_bridge.swift -o riff-bridge -framework CoreGraphics -framework IOKit
+./riff-bridge
 ```
 
 Requires macOS Accessibility permission. Signed with Apple Development certificate for stable permissions across recompiles.
 
-LaunchAgent: `~/Library/LaunchAgents/co.remotehumans.jx11-bridge.plist`
+LaunchAgent: `~/Library/LaunchAgents/co.remotehumans.riff-bridge.plist`
 
-### riff
+### riff-voice
 ```bash
-cd riff
+cd riff-voice
 make install    # uv sync + LaunchAgent + CLI symlinks + hook
 riff-say "hello"
 riff-ctl status
 ```
 
-LaunchAgent: `~/Library/LaunchAgents/co.remotehumans.riff.plist`
+LaunchAgent: `~/Library/LaunchAgents/co.remotehumans.riff-voice.plist`
