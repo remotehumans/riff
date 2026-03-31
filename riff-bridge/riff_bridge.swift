@@ -55,7 +55,7 @@ let kUsageX: UInt32 = 0x30
 let kUsageY: UInt32 = 0x31
 
 // macOS virtual keycodes
-let kKeyCodeOption: CGKeyCode = 58
+let kKeyCodeOption: CGKeyCode = 61  // Right Option key (58 = Left Option)
 let kKeyCodeReturn: CGKeyCode = 36
 let kKeyCodeDelete: CGKeyCode = 51
 let kKeyCodeEscape: CGKeyCode = 53
