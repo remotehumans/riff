@@ -33,8 +33,11 @@ When you tap the ring, it starts recording. Tap again, it stops. Then press the 
 ## Hardware
 
 - **Smart ring**: JX-11 Bluetooth ring (available on AliExpress/Amazon for ~$15)
-- **Wireless mic**: Any wireless microphone that connects to your Mac (DJI Mic, Rode Wireless Go, etc.)
+- **Voice-to-text app**: Any app with a keyboard shortcut trigger ([FluidVoice](https://fluidvoice.ai/), [Superwhisper](https://superwhisper.com/), etc.)
 - **Computer**: Mac running macOS (tested on macOS 15 Sequoia)
+- **Wireless mic** (optional): DJI Mic, Rode Wireless Go, or any wireless microphone
+
+You don't need a wireless mic. Your Mac's built-in microphone works fine when you're in the same room - the ring just lets you step back from your desk and not be tied to your keyboard. A wireless mic extends the range if you want to walk further away.
 
 ## Setup
 

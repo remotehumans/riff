@@ -54,11 +54,13 @@ Most people start with **ring-bridge** - it's the core "walk around and talk to 
 
 ## Hardware
 
-| Item | Cost | Where to get it |
-|---|---|---|
-| JX-11 Smart Ring | ~$15 | AliExpress, Amazon |
-| Wireless microphone | $30-300 | DJI Mic, Rode Wireless Go, or any BT/wireless mic |
-| Voice-to-text app | Free-$10 | [FluidVoice](https://fluidvoice.ai/), [Superwhisper](https://superwhisper.com/), [Whisper Flow](https://whisperflow.com/), [Handy](https://handyai.app/), or any app with a keyboard shortcut trigger |
+| Item | Cost | Required? | Where to get it |
+|---|---|---|---|
+| JX-11 Smart Ring | ~$15 | Yes | AliExpress, Amazon |
+| Voice-to-text app | Free-$10 | Yes | [FluidVoice](https://fluidvoice.ai/), [Superwhisper](https://superwhisper.com/), [Whisper Flow](https://whisperflow.com/), [Handy](https://handyai.app/), or any app with a keyboard shortcut trigger |
+| Wireless microphone | $30-300 | Optional | DJI Mic, Rode Wireless Go, or any BT/wireless mic |
+
+**You don't need a wireless mic to get started.** The ring works with your Mac's built-in microphone - you just need to be in the same room. This alone lets you step back from your desk, stand up, and interact with your computer without being glued to your keyboard. A wireless mic extends the range so you can walk to another room, but it's not required.
 
 ## Requirements
 
