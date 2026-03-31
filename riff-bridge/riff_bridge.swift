@@ -61,7 +61,7 @@ let kKeyCodeDelete: CGKeyCode = 51
 let kKeyCodeEscape: CGKeyCode = 53
 
 // Timing thresholds (seconds)
-let kTapDebounce: TimeInterval = 0.3
+let kTapDebounce: TimeInterval = 0.6  // JX-13 sends duplicate events per tap; 0.6s filters the second
 let kSwipeDebounce: TimeInterval = 0.5
 let kCorrelationWindow: TimeInterval = 0.15
 
