@@ -243,7 +243,7 @@ class RiffDaemon:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                sd.play(amplified, samplerate=24000)
+                sd.play(amplified, samplerate=24000, device=self.config.output_device)
 
                 # Wait for playback to finish, checking interrupt flag periodically
                 stream = sd.get_stream()
@@ -374,6 +374,10 @@ class RiffDaemon:
             return self._handle_set_name(msg)
         elif cmd == "list_voices":
             return self._handle_list_voices()
+        elif cmd == "list_devices":
+            return self._handle_list_devices()
+        elif cmd == "set_output_device":
+            return self._handle_set_output_device(msg)
         else:
             return {"error": f"unknown command: {cmd}"}
 
@@ -542,6 +546,41 @@ class RiffDaemon:
 
     def _handle_list_voices(self) -> dict[str, Any]:
         return {"voices": KOKORO_VOICES}
+
+    def _handle_list_devices(self) -> dict[str, Any]:
+        devices = sd.query_devices()
+        output_devices = []
+        for i, dev in enumerate(devices):
+            if dev["max_output_channels"] > 0:
+                output_devices.append({
+                    "index": i,
+                    "name": dev["name"],
+                    "channels": dev["max_output_channels"],
+                    "is_default": i == sd.default.device[1],
+                })
+        return {
+            "output_devices": output_devices,
+            "current": self.config.output_device,
+        }
+
+    def _handle_set_output_device(self, msg: dict[str, Any]) -> dict[str, Any]:
+        device = msg.get("device")  # int index or None for system default
+        if device is not None:
+            try:
+                device = int(device)
+                dev_info = sd.query_devices(device)
+                if dev_info["max_output_channels"] == 0:
+                    return {"error": f"device {device} has no output channels"}
+            except (ValueError, TypeError):
+                return {"error": "device must be an integer index or null"}
+            except sd.PortAudioError:
+                return {"error": f"device {device} not found"}
+
+        self.config.output_device = device
+        self.config.save()
+        name = sd.query_devices(device)["name"] if device is not None else "System Default"
+        log(f"Output device set to: {name}")
+        return {"ok": True, "device": device, "name": name}
 
 
 async def run_daemon(config: RiffConfig) -> None:

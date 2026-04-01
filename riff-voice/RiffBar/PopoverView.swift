@@ -26,6 +26,12 @@ struct PopoverView: View {
             Divider()
                 .padding(.vertical, 8)
 
+            // Audio device selectors
+            audioDevicesSection
+
+            Divider()
+                .padding(.vertical, 8)
+
             // Sessions list
             sessionsSection
 
@@ -141,6 +147,71 @@ struct PopoverView: View {
             Text("\(daemon.queueDepth) in queue")
                 .font(.caption)
                 .foregroundColor(.orange)
+        }
+    }
+
+    // MARK: - Audio Devices
+
+    private var audioDevicesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Audio")
+                .font(.system(.caption, weight: .semibold))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+
+            // Output device (Riff voice output)
+            HStack(spacing: 8) {
+                Image(systemName: "speaker.wave.2")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 16)
+
+                Picker("", selection: Binding(
+                    get: { daemon.currentOutputDevice ?? -1 },
+                    set: { daemon.setOutputDevice($0 == -1 ? nil : $0) }
+                )) {
+                    Text("System Default").tag(-1)
+                    ForEach(daemon.outputDevices) { device in
+                        Text(device.name).tag(device.index)
+                    }
+                }
+                .labelsHidden()
+            }
+
+            // Input device (system mic)
+            HStack(spacing: 8) {
+                Image(systemName: "mic")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 16)
+
+                Picker("", selection: Binding(
+                    get: {
+                        daemon.systemInputDevices.first(where: { $0.isDefault })?.id ?? 0
+                    },
+                    set: { daemon.setSystemInputDevice($0) }
+                )) {
+                    ForEach(daemon.systemInputDevices) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                }
+                .labelsHidden()
+            }
+
+            // Refresh button
+            HStack {
+                Spacer()
+                Button {
+                    daemon.fetchDevices()
+                    daemon.refreshSystemInputDevices()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.secondary)
+                .help("Refresh audio devices")
+            }
         }
     }
 

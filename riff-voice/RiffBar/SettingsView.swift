@@ -221,8 +221,8 @@ struct AboutTab: View {
                     .foregroundColor(.secondary)
             }
 
-            Link("voice-ai repository",
-                 destination: URL(string: "https://github.com/remotehumans/voice-ai")!)
+            Link("Riff on GitHub",
+                 destination: URL(string: "https://github.com/remotehumans/riff")!)
                 .font(.caption)
 
             Spacer()

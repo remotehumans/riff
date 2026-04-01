@@ -22,6 +22,7 @@ DEFAULTS = {
     "socket_path": "/tmp/riff.sock",
     "announce_sessions": True,
     "audio_mode": "pause",
+    "output_device": None,
 }
 
 
@@ -37,6 +38,7 @@ class RiffConfig:
     socket_path: str = "/tmp/riff.sock"
     announce_sessions: bool = True
     audio_mode: str = "pause"  # "pause" (pause media while speaking), or "none"
+    output_device: int | None = None  # sounddevice device index, None = system default
 
     @classmethod
     def load(cls, path: Path | None = None) -> RiffConfig:
@@ -63,6 +65,7 @@ class RiffConfig:
             socket_path=merged["socket_path"],
             announce_sessions=merged["announce_sessions"],
             audio_mode=merged.get("audio_mode", "duck"),
+            output_device=merged.get("output_device"),
         )
 
     def save(self, path: Path | None = None) -> None:

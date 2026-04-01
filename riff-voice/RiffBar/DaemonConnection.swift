@@ -4,6 +4,7 @@
 import Foundation
 import Combine
 import AppKit
+import CoreAudio
 
 class DaemonConnection: ObservableObject {
     @Published var speaking: Bool = false
@@ -16,6 +17,10 @@ class DaemonConnection: ObservableObject {
     @Published var defaultVoice: String = "am_adam"
     @Published var announcerVoice: String = "af_heart"
     @Published var sessions: [SessionInfo] = []
+    @Published var outputDevices: [AudioDeviceInfo] = []
+    @Published var currentOutputDevice: Int? = nil  // nil = system default
+    @Published var systemInputDevices: [SystemAudioDevice] = []
+    @Published var currentInputDeviceUID: String = ""
 
     private let socketPath = "/tmp/riff.sock"
     private var pollTimer: Timer?
@@ -25,6 +30,8 @@ class DaemonConnection: ObservableObject {
     init() {
         loadConfig()
         fetchVoices()
+        fetchDevices()
+        refreshSystemInputDevices()
         startPolling()
     }
 
@@ -151,6 +158,132 @@ class DaemonConnection: ObservableObject {
         }
     }
 
+    // MARK: - Audio Devices
+
+    func fetchDevices() {
+        let request: [String: Any] = ["type": "list_devices"]
+        sendRequest(request) { [weak self] response in
+            guard let self, let response,
+                  let devices = response["output_devices"] as? [[String: Any]] else { return }
+            DispatchQueue.main.async {
+                self.outputDevices = devices.compactMap { dict in
+                    guard let index = dict["index"] as? Int,
+                          let name = dict["name"] as? String,
+                          let isDefault = dict["is_default"] as? Bool else { return nil }
+                    return AudioDeviceInfo(index: index, name: name, isDefault: isDefault)
+                }
+                self.currentOutputDevice = response["current"] as? Int
+            }
+        }
+    }
+
+    func setOutputDevice(_ index: Int?) {
+        currentOutputDevice = index
+        var request: [String: Any] = ["type": "set_output_device"]
+        if let index { request["device"] = index }
+        fire(request)
+    }
+
+    func refreshSystemInputDevices() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var devices: [SystemAudioDevice] = []
+            var currentDefault: AudioDeviceID = 0
+
+            // Get default input device
+            var defaultAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var defaultSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &defaultAddr, 0, nil, &defaultSize, &currentDefault
+            )
+
+            // Get all audio devices
+            var devicesAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDevices,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var propSize: UInt32 = 0
+            AudioObjectGetPropertyDataSize(
+                AudioObjectID(kAudioObjectSystemObject),
+                &devicesAddr, 0, nil, &propSize
+            )
+
+            let deviceCount = Int(propSize) / MemoryLayout<AudioDeviceID>.size
+            var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &devicesAddr, 0, nil, &propSize, &deviceIDs
+            )
+
+            for deviceID in deviceIDs {
+                // Check if device has input channels
+                var inputAddr = AudioObjectPropertyAddress(
+                    mSelector: kAudioDevicePropertyStreamConfiguration,
+                    mScope: kAudioDevicePropertyScopeInput,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                var bufSize: UInt32 = 0
+                guard AudioObjectGetPropertyDataSize(deviceID, &inputAddr, 0, nil, &bufSize) == noErr,
+                      bufSize > 0 else { continue }
+
+                let bufferList = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: Int(bufSize))
+                defer { bufferList.deallocate() }
+                guard AudioObjectGetPropertyData(deviceID, &inputAddr, 0, nil, &bufSize, bufferList) == noErr else { continue }
+
+                let channelCount = (0..<Int(bufferList.pointee.mNumberBuffers)).reduce(0) { total, i in
+                    let buf = UnsafeRawPointer(bufferList).advanced(by: MemoryLayout<UInt32>.size + i * MemoryLayout<AudioBuffer>.size)
+                        .assumingMemoryBound(to: AudioBuffer.self).pointee
+                    return total + Int(buf.mNumberChannels)
+                }
+                guard channelCount > 0 else { continue }
+
+                // Get device name
+                var nameAddr = AudioObjectPropertyAddress(
+                    mSelector: kAudioDevicePropertyDeviceNameCFString,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                var nameRef: CFString = "" as CFString
+                var nameSize = UInt32(MemoryLayout<CFString>.size)
+                AudioObjectGetPropertyData(deviceID, &nameAddr, 0, nil, &nameSize, &nameRef)
+                let name = nameRef as String
+
+                devices.append(SystemAudioDevice(
+                    id: deviceID,
+                    name: name,
+                    isDefault: deviceID == currentDefault
+                ))
+            }
+
+            let defaultUID = currentDefault
+            DispatchQueue.main.async {
+                self?.systemInputDevices = devices
+                self?.currentInputDeviceUID = String(defaultUID)
+            }
+        }
+    }
+
+    func setSystemInputDevice(_ deviceID: AudioDeviceID) {
+        var id = deviceID
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &addr, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &id
+        )
+        currentInputDeviceUID = String(deviceID)
+        refreshSystemInputDevices()
+    }
+
     // MARK: - Config File Access
 
     private func loadConfig() {
@@ -271,4 +404,20 @@ class DaemonConnection: ObservableObject {
             completion(parsed)
         }
     }
+}
+
+// MARK: - Audio Device Models
+
+struct AudioDeviceInfo: Identifiable {
+    let index: Int
+    let name: String
+    let isDefault: Bool
+
+    var id: Int { index }
+}
+
+struct SystemAudioDevice: Identifiable {
+    let id: AudioDeviceID
+    let name: String
+    let isDefault: Bool
 }
