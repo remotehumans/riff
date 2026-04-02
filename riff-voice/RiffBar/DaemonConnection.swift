@@ -46,6 +46,8 @@ class DaemonConnection: ObservableObject {
         fetchStatus()
     }
 
+    private var lastConfigModTime: Date?
+
     private func fetchStatus() {
         let request: [String: Any] = ["type": "status"]
         sendRequest(request) { [weak self] response in
@@ -60,7 +62,14 @@ class DaemonConnection: ObservableObject {
                 self.currentSession = response["current_session"] as? String
                 self.enabled = response["enabled"] as? Bool ?? true
                 self.speed = response["speed"] as? Double ?? 1.0
-                self.loadConfig()
+
+                // Only reload config if file changed on disk
+                let attrs = try? FileManager.default.attributesOfItem(atPath: self.configPath.path)
+                let modTime = attrs?[.modificationDate] as? Date
+                if modTime != self.lastConfigModTime {
+                    self.lastConfigModTime = modTime
+                    self.loadConfig()
+                }
             }
         }
     }
