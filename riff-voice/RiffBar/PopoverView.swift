@@ -186,13 +186,15 @@ struct PopoverView: View {
                     .frame(width: 16)
 
                 Picker("", selection: Binding(
-                    get: {
-                        daemon.systemInputDevices.first(where: { $0.isDefault })?.id ?? 0
-                    },
-                    set: { daemon.setSystemInputDevice($0) }
+                    get: { daemon.currentInputDevice ?? -1 },
+                    set: { newIndex in
+                        if let device = daemon.inputDevices.first(where: { $0.index == newIndex }) {
+                            daemon.setSystemInputDevice(device.name)
+                        }
+                    }
                 )) {
-                    ForEach(daemon.systemInputDevices) { device in
-                        Text(device.name).tag(device.id)
+                    ForEach(daemon.inputDevices) { device in
+                        Text(device.name).tag(device.index)
                     }
                 }
                 .labelsHidden()
@@ -203,7 +205,6 @@ struct PopoverView: View {
                 Spacer()
                 Button {
                     daemon.fetchDevices()
-                    daemon.refreshSystemInputDevices()
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.caption)

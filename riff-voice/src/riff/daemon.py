@@ -548,8 +548,12 @@ class RiffDaemon:
         return {"voices": KOKORO_VOICES}
 
     def _handle_list_devices(self) -> dict[str, Any]:
+        # Re-scan audio devices so hot-plugged devices appear
+        sd._terminate()
+        sd._initialize()
         devices = sd.query_devices()
         output_devices = []
+        input_devices = []
         for i, dev in enumerate(devices):
             if dev["max_output_channels"] > 0:
                 output_devices.append({
@@ -558,8 +562,16 @@ class RiffDaemon:
                     "channels": dev["max_output_channels"],
                     "is_default": i == sd.default.device[1],
                 })
+            if dev["max_input_channels"] > 0:
+                input_devices.append({
+                    "index": i,
+                    "name": dev["name"],
+                    "channels": dev["max_input_channels"],
+                    "is_default": i == sd.default.device[0],
+                })
         return {
             "output_devices": output_devices,
+            "input_devices": input_devices,
             "current": self.config.output_device,
         }
 

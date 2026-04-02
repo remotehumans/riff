@@ -10,7 +10,6 @@ echo "Building RiffBar..."
 swiftc -o RiffBar \
     -framework AppKit \
     -framework SwiftUI \
-    -framework CoreAudio \
     -target arm64-apple-macosx13.0 \
     RiffBarApp.swift \
     DaemonConnection.swift \
