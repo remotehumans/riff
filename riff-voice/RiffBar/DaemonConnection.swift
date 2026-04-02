@@ -25,11 +25,10 @@ class DaemonConnection: ObservableObject {
     private var pollTimer: Timer?
     private let configPath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/riff/config.json")
+    private var pollInterval: TimeInterval = 5.0
 
     init() {
         loadConfig()
-        fetchVoices()
-        fetchDevices()
         startPolling()
     }
 
@@ -37,10 +36,32 @@ class DaemonConnection: ObservableObject {
         pollTimer?.invalidate()
     }
 
+    /// Call when popover opens to fetch fresh data and poll faster
+    func popoverOpened() {
+        fetchVoices()
+        fetchDevices()
+        fetchStatus()
+        setPollInterval(2.0)
+    }
+
+    /// Call when popover closes to reduce polling frequency
+    func popoverClosed() {
+        setPollInterval(5.0)
+    }
+
+    private func setPollInterval(_ interval: TimeInterval) {
+        guard interval != pollInterval else { return }
+        pollInterval = interval
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.fetchStatus()
+        }
+    }
+
     // MARK: - Polling
 
     private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             self?.fetchStatus()
         }
         fetchStatus()

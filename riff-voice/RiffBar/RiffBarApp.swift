@@ -10,6 +10,8 @@ struct RiffBarApp: App {
     var body: some Scene {
         MenuBarExtra {
             PopoverView(daemon: daemon)
+                .onAppear { daemon.popoverOpened() }
+                .onDisappear { daemon.popoverClosed() }
         } label: {
             Image(systemName: daemon.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
         }

@@ -282,11 +282,17 @@ struct PopoverView: View {
 // MARK: - Waveform Animation
 
 struct WaveformView: View {
-    @State private var animating = false
+    @State private var phase: Int = 0
 
     private let barCount = 4
     private let barSpacing: CGFloat = 2
     private let barWidth: CGFloat = 2.5
+    private let heights: [[CGFloat]] = [
+        [0.4, 0.7, 0.5, 0.9],
+        [0.8, 0.4, 0.9, 0.5],
+        [0.5, 0.9, 0.4, 0.7],
+    ]
+    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     var body: some View {
         HStack(spacing: barSpacing) {
@@ -294,17 +300,10 @@ struct WaveformView: View {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(width: barWidth)
-                    .scaleEffect(y: animating ? CGFloat.random(in: 0.3...1.0) : 0.4, anchor: .bottom)
-                    .animation(
-                        .easeInOut(duration: 0.4)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(index) * 0.1),
-                        value: animating
-                    )
+                    .scaleEffect(y: heights[phase % heights.count][index], anchor: .bottom)
             }
         }
-        .onAppear { animating = true }
-        .onDisappear { animating = false }
+        .onReceive(timer) { _ in phase += 1 }
     }
 }
 
