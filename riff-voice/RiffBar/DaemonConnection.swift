@@ -5,7 +5,7 @@ import Foundation
 import Combine
 import AppKit
 
-class DaemonConnection: ObservableObject {
+final class DaemonConnection: ObservableObject {
     @Published var speaking: Bool = false
     @Published var queueDepth: Int = 0
     @Published var currentSession: String?
@@ -26,6 +26,10 @@ class DaemonConnection: ObservableObject {
     private let configPath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/riff/config.json")
     private var pollInterval: TimeInterval = 5.0
+    private let requestQueue = DispatchQueue(label: "com.riffbar.daemon-connection", qos: .utility)
+    private var statusRequestInFlight = false
+    private var voicesRequestInFlight = false
+    private var devicesRequestInFlight = false
 
     init() {
         loadConfig()
@@ -70,38 +74,58 @@ class DaemonConnection: ObservableObject {
     private var lastConfigModTime: Date?
 
     private func fetchStatus() {
+        guard !statusRequestInFlight else { return }
+        statusRequestInFlight = true
+
         let request: [String: Any] = ["type": "status"]
         sendRequest(request) { [weak self] response in
             guard let self, let response else {
-                DispatchQueue.main.async { self?.connected = false }
+                DispatchQueue.main.async {
+                    self?.statusRequestInFlight = false
+                    self?.connected = false
+                }
                 return
             }
-            DispatchQueue.main.async {
-                self.connected = true
-                self.speaking = response["speaking"] as? Bool ?? false
-                self.queueDepth = response["queue_depth"] as? Int ?? 0
-                self.currentSession = response["current_session"] as? String
-                self.enabled = response["enabled"] as? Bool ?? true
-                self.speed = response["speed"] as? Double ?? 1.0
 
-                // Only reload config if file changed on disk
-                let attrs = try? FileManager.default.attributesOfItem(atPath: self.configPath.path)
-                let modTime = attrs?[.modificationDate] as? Date
-                if modTime != self.lastConfigModTime {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: self.configPath.path)
+            let modTime = attrs?[.modificationDate] as? Date
+            let config = modTime != self.lastConfigModTime ? self.loadConfigDict() : nil
+
+            DispatchQueue.main.async {
+                self.statusRequestInFlight = false
+                self.connected = true
+                self.updatePublishedValue(&self.speaking, with: response["speaking"] as? Bool ?? false)
+                self.updatePublishedValue(&self.queueDepth, with: response["queue_depth"] as? Int ?? 0)
+                self.updatePublishedValue(&self.currentSession, with: response["current_session"] as? String)
+                self.updatePublishedValue(&self.enabled, with: response["enabled"] as? Bool ?? true)
+                self.updatePublishedValue(&self.speed, with: response["speed"] as? Double ?? 1.0)
+
+                if let config {
                     self.lastConfigModTime = modTime
-                    self.loadConfig()
+                    self.applyConfig(config)
                 }
             }
         }
     }
 
     private func fetchVoices() {
+        guard !voicesRequestInFlight else { return }
+        voicesRequestInFlight = true
+
         let request: [String: Any] = ["type": "list_voices"]
         sendRequest(request) { [weak self] response in
-            guard let self, let response,
-                  let voiceList = response["voices"] as? [String] else { return }
+            guard let self else { return }
+            guard let response,
+                  let voiceList = response["voices"] as? [String] else {
+                DispatchQueue.main.async {
+                    self.voicesRequestInFlight = false
+                }
+                return
+            }
+
             DispatchQueue.main.async {
-                self.voices = voiceList
+                self.voicesRequestInFlight = false
+                self.updatePublishedValue(&self.voices, with: voiceList)
             }
         }
     }
@@ -189,28 +213,34 @@ class DaemonConnection: ObservableObject {
     // MARK: - Audio Devices
 
     func fetchDevices() {
+        guard !devicesRequestInFlight else { return }
+        devicesRequestInFlight = true
+
         let request: [String: Any] = ["type": "list_devices"]
         sendRequest(request) { [weak self] response in
-            guard let self, let response else { return }
+            guard let self else { return }
+            guard let response else {
+                DispatchQueue.main.async {
+                    self.devicesRequestInFlight = false
+                }
+                return
+            }
+
+            let outputDevices = (response["output_devices"] as? [[String: Any]])?.compactMap(Self.parseAudioDevice)
+            let inputDevices = (response["input_devices"] as? [[String: Any]])?.compactMap(Self.parseAudioDevice)
+            let currentInputDevice = inputDevices?.first(where: { $0.isDefault })?.index
+            let currentOutputDevice = response["current"] as? Int
+
             DispatchQueue.main.async {
-                if let outputs = response["output_devices"] as? [[String: Any]] {
-                    self.outputDevices = outputs.compactMap { dict in
-                        guard let index = dict["index"] as? Int,
-                              let name = dict["name"] as? String,
-                              let isDefault = dict["is_default"] as? Bool else { return nil }
-                        return AudioDeviceInfo(index: index, name: name, isDefault: isDefault)
-                    }
+                self.devicesRequestInFlight = false
+                if let outputDevices {
+                    self.updatePublishedValue(&self.outputDevices, with: outputDevices)
                 }
-                if let inputs = response["input_devices"] as? [[String: Any]] {
-                    self.inputDevices = inputs.compactMap { dict in
-                        guard let index = dict["index"] as? Int,
-                              let name = dict["name"] as? String,
-                              let isDefault = dict["is_default"] as? Bool else { return nil }
-                        return AudioDeviceInfo(index: index, name: name, isDefault: isDefault)
-                    }
-                    self.currentInputDevice = self.inputDevices.first(where: { $0.isDefault })?.index
+                if let inputDevices {
+                    self.updatePublishedValue(&self.inputDevices, with: inputDevices)
+                    self.updatePublishedValue(&self.currentInputDevice, with: currentInputDevice)
                 }
-                self.currentOutputDevice = response["current"] as? Int
+                self.updatePublishedValue(&self.currentOutputDevice, with: currentOutputDevice)
             }
         }
     }
@@ -263,14 +293,7 @@ class DaemonConnection: ObservableObject {
 
     private func loadConfig() {
         guard let config = loadConfigDict() else { return }
-        defaultVoice = config["default_voice"] as? String ?? "am_adam"
-        announcerVoice = config["announcer_voice"] as? String ?? "af_heart"
-
-        let names = config["session_names"] as? [String: String] ?? [:]
-        let voiceMap = config["voice_map"] as? [String: String] ?? [:]
-        sessions = names.map { key, name in
-            SessionInfo(key: key, displayName: name, voice: voiceMap[key] ?? defaultVoice)
-        }.sorted(by: { $0.displayName < $1.displayName })
+        applyConfig(config)
     }
 
     private func loadConfigDict() -> [String: Any]? {
@@ -296,7 +319,8 @@ class DaemonConnection: ObservableObject {
     /// Send a JSON request to the daemon socket and call the completion handler with the parsed response.
     /// Each call opens a new connection, sends, reads, and closes (simple and stateless).
     private func sendRequest(_ request: [String: Any], completion: @escaping ([String: Any]?) -> Void) {
-        DispatchQueue.global(qos: .utility).async { [socketPath] in
+        requestQueue.async { [socketPath] in
+            autoreleasepool {
             guard FileManager.default.fileExists(atPath: socketPath) else {
                 completion(nil)
                 return
@@ -377,17 +401,43 @@ class DaemonConnection: ObservableObject {
                 return
             }
             completion(parsed)
+            }
         }
+    }
+
+    private func applyConfig(_ config: [String: Any]) {
+        let defaultVoice = config["default_voice"] as? String ?? "am_adam"
+        let announcerVoice = config["announcer_voice"] as? String ?? "af_heart"
+        let names = config["session_names"] as? [String: String] ?? [:]
+        let voiceMap = config["voice_map"] as? [String: String] ?? [:]
+        let sessions = names.map { key, name in
+            SessionInfo(key: key, displayName: name, voice: voiceMap[key] ?? defaultVoice)
+        }.sorted(by: { $0.displayName < $1.displayName })
+
+        updatePublishedValue(&self.defaultVoice, with: defaultVoice)
+        updatePublishedValue(&self.announcerVoice, with: announcerVoice)
+        updatePublishedValue(&self.sessions, with: sessions)
+    }
+
+    private func updatePublishedValue<Value: Equatable>(_ currentValue: inout Value, with newValue: Value) {
+        guard currentValue != newValue else { return }
+        currentValue = newValue
+    }
+
+    private static func parseAudioDevice(from dict: [String: Any]) -> AudioDeviceInfo? {
+        guard let index = dict["index"] as? Int,
+              let name = dict["name"] as? String,
+              let isDefault = dict["is_default"] as? Bool else { return nil }
+        return AudioDeviceInfo(index: index, name: name, isDefault: isDefault)
     }
 }
 
 // MARK: - Audio Device Models
 
-struct AudioDeviceInfo: Identifiable {
+struct AudioDeviceInfo: Identifiable, Equatable {
     let index: Int
     let name: String
     let isDefault: Bool
 
     var id: Int { index }
 }
-

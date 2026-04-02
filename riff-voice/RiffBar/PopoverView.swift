@@ -282,8 +282,6 @@ struct PopoverView: View {
 // MARK: - Waveform Animation
 
 struct WaveformView: View {
-    @State private var phase: Int = 0
-
     private let barCount = 4
     private let barSpacing: CGFloat = 2
     private let barWidth: CGFloat = 2.5
@@ -292,24 +290,26 @@ struct WaveformView: View {
         [0.8, 0.4, 0.9, 0.5],
         [0.5, 0.9, 0.4, 0.7],
     ]
-    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(spacing: barSpacing) {
-            ForEach(0..<barCount, id: \.self) { index in
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: barWidth)
-                    .scaleEffect(y: heights[phase % heights.count][index], anchor: .bottom)
+        TimelineView(.periodic(from: .now, by: 0.4)) { context in
+            let phase = Int(context.date.timeIntervalSinceReferenceDate / 0.4)
+
+            HStack(spacing: barSpacing) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: barWidth)
+                        .scaleEffect(y: heights[phase % heights.count][index], anchor: .bottom)
+                }
             }
         }
-        .onReceive(timer) { _ in phase += 1 }
     }
 }
 
 // MARK: - Session Data Model
 
-struct SessionInfo: Identifiable {
+struct SessionInfo: Identifiable, Equatable {
     let key: String
     let displayName: String
     let voice: String
