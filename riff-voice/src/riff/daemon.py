@@ -18,6 +18,12 @@ import sounddevice as sd
 
 from riff.config import RiffConfig
 
+# Maximum number of sessions to retain in config. The Stop hook adds a session
+# per Claude Code session, so without a cap the list grows without bound and
+# bloats both config.json and the menu bar UI. Oldest (by insertion order) are
+# pruned first; the most recently added survive.
+MAX_SESSIONS = 50
+
 # Available Kokoro voice presets
 KOKORO_VOICES = [
     "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica",
@@ -420,6 +426,20 @@ class RiffDaemon:
         name = " ".join(w.capitalize() for w in meaningful[:3])
         return name
 
+    def _prune_sessions(self) -> bool:
+        """Drop the oldest sessions beyond MAX_SESSIONS. Returns True if any
+        were removed. Ordering is dict insertion order, so the most recently
+        added sessions survive."""
+        names = self.config.session_names
+        if len(names) <= MAX_SESSIONS:
+            return False
+        excess = len(names) - MAX_SESSIONS
+        for key in list(names.keys())[:excess]:
+            del names[key]
+            self.config.voice_map.pop(key, None)
+        log(f"Pruned {excess} old sessions (cap {MAX_SESSIONS})")
+        return True
+
     def _handle_speak(self, msg: dict[str, Any]) -> dict[str, Any]:
         text = msg.get("text", "")
         if not text:
@@ -446,6 +466,7 @@ class RiffDaemon:
                         changed = True
                         break
             if changed:
+                self._prune_sessions()
                 self.config.save()
 
         # Store full_text for later read_full command
@@ -679,6 +700,10 @@ class RiffDaemon:
 async def run_daemon(config: RiffConfig) -> None:
     """Start the daemon: load model, launch socket server and speech worker."""
     daemon = RiffDaemon(config)
+
+    # Bound any session history accumulated by previous runs.
+    if daemon._prune_sessions():
+        daemon.config.save()
 
     # Load model (blocking, done before accepting connections)
     loop = asyncio.get_event_loop()

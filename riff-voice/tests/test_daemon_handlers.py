@@ -186,3 +186,46 @@ def test_daemon_save_does_not_clobber_external_default_voice(tmp_config):
     daemon._handle_set_name({"session": "xyz", "name": "Some Session"})
 
     assert _read(path)["default_voice"] == new_voice
+
+
+# --- Session pruning (bound unbounded growth) -----------------------------
+
+
+def test_prune_sessions_caps_to_max_and_keeps_most_recent(tmp_config):
+    cfg, _ = tmp_config
+    daemon = RiffDaemon(cfg)
+    total = daemon_mod.MAX_SESSIONS + 25
+    for i in range(total):
+        cfg.session_names[f"s{i:04d}"] = f"Session {i}"
+
+    pruned = daemon._prune_sessions()
+
+    assert pruned is True
+    assert len(cfg.session_names) == daemon_mod.MAX_SESSIONS
+    # The most recently inserted survive; the oldest are gone.
+    assert f"s{total - 1:04d}" in cfg.session_names
+    assert "s0000" not in cfg.session_names
+
+
+def test_prune_sessions_noop_under_cap(tmp_config):
+    cfg, _ = tmp_config
+    daemon = RiffDaemon(cfg)
+    cfg.session_names = {"a": "A", "b": "B"}
+
+    assert daemon._prune_sessions() is False
+    assert len(cfg.session_names) == 2
+
+
+def test_prune_removes_voice_map_for_dropped_sessions(tmp_config):
+    cfg, _ = tmp_config
+    daemon = RiffDaemon(cfg)
+    for i in range(daemon_mod.MAX_SESSIONS + 5):
+        key = f"s{i:04d}"
+        cfg.session_names[key] = f"Session {i}"
+        cfg.voice_map[key] = daemon_mod.KOKORO_VOICES[i % len(daemon_mod.KOKORO_VOICES)]
+
+    daemon._prune_sessions()
+
+    # voice_map entries for pruned sessions are removed too.
+    assert "s0000" not in cfg.voice_map
+    assert set(cfg.voice_map.keys()) <= set(cfg.session_names.keys())
