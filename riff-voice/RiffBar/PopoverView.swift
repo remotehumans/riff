@@ -42,7 +42,7 @@ struct PopoverView: View {
             footerSection
         }
         .padding(16)
-        .frame(width: 420)
+        .frame(width: 420, height: 560, alignment: .top)
         .preferredColorScheme(.dark)
     }
 
@@ -252,7 +252,7 @@ struct PopoverView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 180)
+                .frame(height: 180)
             }
         }
     }
