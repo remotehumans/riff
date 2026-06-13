@@ -45,6 +45,7 @@ final class DaemonConnection: ObservableObject {
     /// request queue; devices use the fast (no-rescan) path.
     func popoverOpened() {
         fetchStatus()
+        fetchConfig()
         fetchDevices()
         fetchVoices()
         setPollInterval(2.0)
@@ -73,7 +74,7 @@ final class DaemonConnection: ObservableObject {
         fetchStatus()
     }
 
-    private var lastConfigModTime: Date?
+    private var statusPollCount = 0
 
     private func fetchStatus() {
         guard !statusRequestInFlight else { return }
@@ -89,10 +90,6 @@ final class DaemonConnection: ObservableObject {
                 return
             }
 
-            let attrs = try? FileManager.default.attributesOfItem(atPath: self.configPath.path)
-            let modTime = attrs?[.modificationDate] as? Date
-            let config = modTime != self.lastConfigModTime ? self.loadConfigDict() : nil
-
             DispatchQueue.main.async {
                 self.statusRequestInFlight = false
                 self.connected = true
@@ -102,10 +99,28 @@ final class DaemonConnection: ObservableObject {
                 self.updatePublishedValue(&self.enabled, with: response["enabled"] as? Bool ?? true)
                 self.updatePublishedValue(&self.speed, with: response["speed"] as? Double ?? 1.0)
 
-                if let config {
-                    self.lastConfigModTime = modTime
-                    self.applyConfig(config)
+                // While the popover is open (faster poll), periodically refresh
+                // config so daemon-side session auto-naming appears without a
+                // file watch. The daemon is the single writer of config.json.
+                if self.pollInterval <= 2.0 {
+                    self.statusPollCount += 1
+                    if self.statusPollCount % 5 == 0 {
+                        self.fetchConfig()
+                    }
                 }
+            }
+        }
+    }
+
+    /// Fetch the full config from the daemon (the single writer of config.json).
+    private func fetchConfig() {
+        let request: [String: Any] = ["type": "get_config"]
+        sendRequest(request) { [weak self] response in
+            guard let self,
+                  let response,
+                  let config = response["config"] as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                self.applyConfig(config)
             }
         }
     }
@@ -154,10 +169,12 @@ final class DaemonConnection: ObservableObject {
 
     func setVoice(session: String, voice: String) {
         fire(["type": "set_voice", "session": session, "voice": voice])
+        fetchConfig()
     }
 
     func setName(session: String, name: String) {
         fire(["type": "set_name", "session": session, "name": name])
+        fetchConfig()
     }
 
     func readFull() {
@@ -183,13 +200,8 @@ final class DaemonConnection: ObservableObject {
     }
 
     func clearAllSessions() {
-        // Clear sessions from config file
-        if var config = loadConfigDict() {
-            config["session_names"] = [String: String]() as [String: String]
-            config["voice_map"] = [String: String]() as [String: String]
-            saveConfigDict(config)
-            loadConfig()
-        }
+        fire(["type": "clear_sessions"])
+        fetchConfig()
     }
 
     func previewVoice(_ voice: String) {
@@ -198,18 +210,12 @@ final class DaemonConnection: ObservableObject {
 
     func setDefaultVoice(_ voice: String) {
         defaultVoice = voice
-        if var config = loadConfigDict() {
-            config["default_voice"] = voice
-            saveConfigDict(config)
-        }
+        fire(["type": "set_default_voice", "voice": voice])
     }
 
     func setAnnouncerVoice(_ voice: String) {
         announcerVoice = voice
-        if var config = loadConfigDict() {
-            config["announcer_voice"] = voice
-            saveConfigDict(config)
-        }
+        fire(["type": "set_announcer_voice", "voice": voice])
     }
 
     // MARK: - Audio Devices
@@ -298,6 +304,10 @@ final class DaemonConnection: ObservableObject {
 
     // MARK: - Config File Access
 
+    // Read-only fallback: seed initial UI state from the config file at launch,
+    // before the daemon socket is reachable (the daemon may still be loading its
+    // model). The daemon is the single writer of config.json — this view never
+    // writes it; all mutations go through socket commands and fetchConfig().
     private func loadConfig() {
         guard let config = loadConfigDict() else { return }
         applyConfig(config)
@@ -309,11 +319,6 @@ final class DaemonConnection: ObservableObject {
             return nil
         }
         return dict
-    }
-
-    private func saveConfigDict(_ dict: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
-        try? data.write(to: configPath)
     }
 
     // MARK: - Socket Communication

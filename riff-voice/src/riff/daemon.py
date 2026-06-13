@@ -378,6 +378,14 @@ class RiffDaemon:
             return await self._handle_list_devices(msg)
         elif cmd == "set_output_device":
             return self._handle_set_output_device(msg)
+        elif cmd == "get_config":
+            return self._handle_get_config()
+        elif cmd == "set_default_voice":
+            return self._handle_set_default_voice(msg)
+        elif cmd == "set_announcer_voice":
+            return self._handle_set_announcer_voice(msg)
+        elif cmd == "clear_sessions":
+            return self._handle_clear_sessions()
         else:
             return {"error": f"unknown command: {cmd}"}
 
@@ -619,6 +627,53 @@ class RiffDaemon:
         name = sd.query_devices(device)["name"] if device is not None else "System Default"
         log(f"Output device set to: {name}")
         return {"ok": True, "device": device, "name": name}
+
+    def _handle_get_config(self) -> dict[str, Any]:
+        # Whitelist the keys exposed over the socket so future config fields
+        # are surfaced deliberately, never leaked by accident.
+        return {
+            "ok": True,
+            "config": {
+                "default_voice": self.config.default_voice,
+                "announcer_voice": self.config.announcer_voice,
+                "session_names": dict(self.config.session_names),
+                "voice_map": dict(self.config.voice_map),
+                "enabled": self.config.enabled,
+                "speed": self.config.speed,
+                "output_device": self.config.output_device,
+            },
+        }
+
+    def _handle_set_default_voice(self, msg: dict[str, Any]) -> dict[str, Any]:
+        voice = msg.get("voice")
+        if not voice:
+            return {"error": "missing voice field"}
+        if voice not in KOKORO_VOICES:
+            return {"error": f"unknown voice: {voice}", "available": KOKORO_VOICES}
+
+        self.config.default_voice = voice
+        self.config.save()
+        log(f"Default voice set to {voice}")
+        return {"ok": True, "default_voice": voice}
+
+    def _handle_set_announcer_voice(self, msg: dict[str, Any]) -> dict[str, Any]:
+        voice = msg.get("voice")
+        if not voice:
+            return {"error": "missing voice field"}
+        if voice not in KOKORO_VOICES:
+            return {"error": f"unknown voice: {voice}", "available": KOKORO_VOICES}
+
+        self.config.announcer_voice = voice
+        self.config.save()
+        log(f"Announcer voice set to {voice}")
+        return {"ok": True, "announcer_voice": voice}
+
+    def _handle_clear_sessions(self) -> dict[str, Any]:
+        self.config.session_names = {}
+        self.config.voice_map = {}
+        self.config.save()
+        log("Cleared all session names and voice mappings")
+        return {"ok": True}
 
 
 async def run_daemon(config: RiffConfig) -> None:

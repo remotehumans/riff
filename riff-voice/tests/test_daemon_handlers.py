@@ -103,3 +103,86 @@ def test_rescan_skipped_while_speaking(tmp_config, monkeypatch):
     assert resp.get("rescan_skipped") is True
     assert len(resp["output_devices"]) == 1
     assert len(resp["input_devices"]) == 1
+
+
+# --- Single-writer config (daemon owns config.json) -----------------------
+
+
+def test_set_default_voice_valid_persists(tmp_config):
+    cfg, path = tmp_config
+    daemon = RiffDaemon(cfg)
+    voice = daemon_mod.KOKORO_VOICES[1]
+
+    resp = daemon._handle_set_default_voice({"voice": voice})
+
+    assert resp["ok"] is True
+    assert _read(path)["default_voice"] == voice
+
+
+def test_set_default_voice_invalid_errors_and_does_not_write(tmp_config):
+    cfg, path = tmp_config
+    daemon = RiffDaemon(cfg)
+
+    resp = daemon._handle_set_default_voice({"voice": "bogus_voice"})
+
+    assert "error" in resp
+    assert not path.exists()
+
+
+def test_set_announcer_voice_valid_persists(tmp_config):
+    cfg, path = tmp_config
+    daemon = RiffDaemon(cfg)
+    voice = daemon_mod.KOKORO_VOICES[2]
+
+    resp = daemon._handle_set_announcer_voice({"voice": voice})
+
+    assert resp["ok"] is True
+    assert _read(path)["announcer_voice"] == voice
+
+
+def test_clear_sessions_empties_memory_and_disk(tmp_config):
+    cfg, path = tmp_config
+    cfg.session_names = {"abc": "Project A"}
+    cfg.voice_map = {"abc": daemon_mod.KOKORO_VOICES[0]}
+    daemon = RiffDaemon(cfg)
+
+    resp = daemon._handle_clear_sessions()
+
+    assert resp["ok"] is True
+    assert daemon.config.session_names == {}
+    assert daemon.config.voice_map == {}
+    on_disk = _read(path)
+    assert on_disk["session_names"] == {}
+    assert on_disk["voice_map"] == {}
+
+
+def test_get_config_returns_exactly_whitelisted_keys(tmp_config):
+    cfg, _ = tmp_config
+    daemon = RiffDaemon(cfg)
+
+    resp = daemon._handle_get_config()
+
+    assert resp["ok"] is True
+    assert set(resp["config"].keys()) == {
+        "default_voice",
+        "announcer_voice",
+        "session_names",
+        "voice_map",
+        "enabled",
+        "speed",
+        "output_device",
+    }
+
+
+def test_daemon_save_does_not_clobber_external_default_voice(tmp_config):
+    """Regression: a daemon-side save (e.g. set_name auto-naming) must not
+    revert a default_voice that was just changed through the daemon."""
+    cfg, path = tmp_config
+    daemon = RiffDaemon(cfg)
+    new_voice = daemon_mod.KOKORO_VOICES[3]
+
+    daemon._handle_set_default_voice({"voice": new_voice})
+    # A later, unrelated save (session naming) writes the whole config again.
+    daemon._handle_set_name({"session": "xyz", "name": "Some Session"})
+
+    assert _read(path)["default_voice"] == new_voice
