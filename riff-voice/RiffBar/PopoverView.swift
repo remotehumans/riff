@@ -204,7 +204,7 @@ struct PopoverView: View {
             HStack {
                 Spacer()
                 Button {
-                    daemon.fetchDevices()
+                    daemon.fetchDevices(rescan: true)
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.caption)

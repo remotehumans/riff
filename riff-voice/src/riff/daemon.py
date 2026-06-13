@@ -375,7 +375,7 @@ class RiffDaemon:
         elif cmd == "list_voices":
             return self._handle_list_voices()
         elif cmd == "list_devices":
-            return self._handle_list_devices()
+            return await self._handle_list_devices(msg)
         elif cmd == "set_output_device":
             return self._handle_set_output_device(msg)
         else:
@@ -503,6 +503,7 @@ class RiffDaemon:
             return {"error": f"unknown voice: {voice}", "available": KOKORO_VOICES}
 
         self.config.voice_map[session] = voice
+        self.config.save()
         log(f"Voice for [{session}] set to {voice}")
         return {"ok": True, "session": session, "voice": voice}
 
@@ -512,6 +513,7 @@ class RiffDaemon:
             return {"error": "missing enabled field"}
 
         self.config.enabled = bool(enabled)
+        self.config.save()
         state = "enabled" if self.config.enabled else "disabled"
         log(f"TTS {state}")
         return {"ok": True, "enabled": self.config.enabled}
@@ -530,6 +532,7 @@ class RiffDaemon:
             return {"error": "speed must be between 0.5 and 3.0"}
 
         self.config.speed = speed
+        self.config.save()
         log(f"Playback speed set to {speed}x")
         return {"ok": True, "speed": self.config.speed}
 
@@ -547,10 +550,23 @@ class RiffDaemon:
     def _handle_list_voices(self) -> dict[str, Any]:
         return {"voices": KOKORO_VOICES}
 
-    def _handle_list_devices(self) -> dict[str, Any]:
-        # Re-scan audio devices so hot-plugged devices appear
-        sd._terminate()
-        sd._initialize()
+    def _scan_devices(self, rescan: bool) -> dict[str, Any]:
+        """Query audio devices, returning output/input lists.
+
+        A plain query is fast. Reinitialising PortAudio (to pick up hot-plugged
+        devices) is slow — hundreds of ms to seconds with Bluetooth audio — so
+        it only happens when explicitly requested via rescan=True, and never
+        while speaking, since _play_audio shares the global sounddevice state
+        and a reinit mid-playback corrupts it.
+        """
+        rescan_skipped = False
+        if rescan:
+            if self.speaking:
+                rescan_skipped = True
+                log("Device rescan skipped: speech in progress")
+            else:
+                sd._terminate()
+                sd._initialize()
         devices = sd.query_devices()
         output_devices = []
         input_devices = []
@@ -569,11 +585,21 @@ class RiffDaemon:
                     "channels": dev["max_input_channels"],
                     "is_default": i == sd.default.device[0],
                 })
-        return {
+        result: dict[str, Any] = {
             "output_devices": output_devices,
             "input_devices": input_devices,
             "current": self.config.output_device,
         }
+        if rescan_skipped:
+            result["rescan_skipped"] = True
+        return result
+
+    async def _handle_list_devices(self, msg: dict[str, Any]) -> dict[str, Any]:
+        # Run the (potentially blocking) PortAudio scan in a worker thread so
+        # the event loop stays responsive to other commands (status, toggles).
+        rescan = bool(msg.get("rescan", False))
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._scan_devices, rescan)
 
     def _handle_set_output_device(self, msg: dict[str, Any]) -> dict[str, Any]:
         device = msg.get("device")  # int index or None for system default

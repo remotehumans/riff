@@ -40,11 +40,13 @@ final class DaemonConnection: ObservableObject {
         pollTimer?.invalidate()
     }
 
-    /// Call when popover opens to fetch fresh data and poll faster
+    /// Call when popover opens to fetch fresh data and poll faster.
+    /// Status is fetched first so the freshest-needed UI state wins the serial
+    /// request queue; devices use the fast (no-rescan) path.
     func popoverOpened() {
-        fetchVoices()
-        fetchDevices()
         fetchStatus()
+        fetchDevices()
+        fetchVoices()
         setPollInterval(2.0)
     }
 
@@ -212,11 +214,16 @@ final class DaemonConnection: ObservableObject {
 
     // MARK: - Audio Devices
 
-    func fetchDevices() {
+    /// Fetch the audio device list. By default uses the daemon's fast path
+    /// (a plain query). Pass rescan: true (the Refresh button) to make the
+    /// daemon reinitialise PortAudio and pick up hot-plugged devices — that is
+    /// the slow path, so it is opt-in only.
+    func fetchDevices(rescan: Bool = false) {
         guard !devicesRequestInFlight else { return }
         devicesRequestInFlight = true
 
-        let request: [String: Any] = ["type": "list_devices"]
+        var request: [String: Any] = ["type": "list_devices"]
+        if rescan { request["rescan"] = true }
         sendRequest(request) { [weak self] response in
             guard let self else { return }
             guard let response else {
