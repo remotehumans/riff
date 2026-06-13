@@ -13,6 +13,12 @@ SOCK = "/tmp/riff.sock"
 
 
 def log(msg):
+    # Cap the debug log so it can't grow without bound in /tmp.
+    try:
+        if os.path.exists(LOG) and os.path.getsize(LOG) > 1_000_000:
+            open(LOG, "w").close()
+    except OSError:
+        pass
     with open(LOG, "a") as f:
         f.write(f"{datetime.now()}: {msg}\n")
 
@@ -71,7 +77,7 @@ def send_to_daemon(message):
 
 def main():
     try:
-        raw = sys.argv[1] if len(sys.argv) > 1 else ""
+        raw = sys.stdin.read()
         log(f"hook triggered, input length={len(raw)}")
 
         if not raw:
@@ -100,7 +106,7 @@ def main():
         if label:
             send_to_daemon({"type": "set_name", "session": session, "name": label})
 
-        log(f"label={label}, speak_text={speak_text[:100]}")
+        log(f"label={label}, speak_len={len(speak_text)}")
 
         if not speak_text:
             return

@@ -10,8 +10,8 @@ PROCESSOR="$SCRIPT_DIR/riff-hook-processor.py"
 [ ! -S "$SOCKET_PATH" ] && exit 0
 [ ! -f "$PROCESSOR" ] && exit 0
 
-# Read stdin, pass to Python processor as argument
-INPUT=$(cat 2>/dev/null || echo "{}")
-python3 "$PROCESSOR" "$INPUT" 2>/dev/null || true
+# Stream stdin straight to the Python processor. Passing the payload on argv
+# risks ARG_MAX on large messages and exposes it in the process listing.
+python3 "$PROCESSOR" 2>/dev/null || true
 
 exit 0

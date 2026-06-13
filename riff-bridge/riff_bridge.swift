@@ -331,9 +331,27 @@ let matchDict: [String: Any] = [
 ]
 IOHIDManagerSetDeviceMatching(hidManager, matchDict as CFDictionary)
 
+// Validate the source device of an HID value by product name. The input
+// callback is registered at MANAGER level (the ring exposes several HID
+// interfaces, and per-device registration misses some), so it receives events
+// from ANY device matching the JX-11 VendorID/ProductID — including a BLE
+// look-alike advertising the same IDs. Reading the cached product name is a
+// cheap in-process dictionary lookup, so it is safe to check per event.
+func isValidatedRingDevice(_ element: IOHIDElement) -> Bool {
+    let device = IOHIDElementGetDevice(element)
+    let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String
+    return name == kJX11ExpectedName
+}
+
 // IOKit input value callback for the ring device
 let ringInputCallback: IOHIDValueCallback = { ctx, result, sender, value in
     let element = IOHIDValueGetElement(value)
+
+    // Drop events from look-alike devices that match the VID/PID but are not
+    // the JX-11 ring — without this, any such device could inject Enter,
+    // Backspace, or toggle the Option key.
+    guard isValidatedRingDevice(element) else { return }
+
     let usagePage = IOHIDElementGetUsagePage(element)
     let usage = IOHIDElementGetUsage(element)
     let intValue = IOHIDValueGetIntegerValue(value)
@@ -384,6 +402,11 @@ let hidMatchCallback: IOHIDDeviceCallback = { context, result, sender, device in
     let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "unknown"
     let serial = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String ?? "none"
     let manufacturer = IOHIDDeviceGetProperty(device, kIOHIDManufacturerKey as CFString) as? String ?? "unknown"
+
+    guard name == kJX11ExpectedName else {
+        print("[\(ts())] [!] Rejected HID device matching JX-11 VID/PID but named '\(name)' (serial: \(serial), manufacturer: \(manufacturer)) — expected \(kJX11ExpectedName). Its events are ignored.")
+        return
+    }
     print("[\(ts())] Ring connected — name: \(name), serial: \(serial), manufacturer: \(manufacturer)")
 
     // Re-enable event tap on reconnect

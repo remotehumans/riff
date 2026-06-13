@@ -50,7 +50,7 @@ bar:
 
 bar-install: bar
 	mkdir -p $(AGENT_DIR)
-	cp RiffBar/$(BAR_PLIST) $(AGENT_DIR)/$(BAR_PLIST)
+	sed 's|__INSTALL_DIR__|$(CURDIR)|g' RiffBar/$(BAR_PLIST) > $(AGENT_DIR)/$(BAR_PLIST)
 	-launchctl bootout gui/$$(id -u) $(AGENT_DIR)/$(BAR_PLIST) 2>/dev/null
 	launchctl bootstrap gui/$$(id -u) $(AGENT_DIR)/$(BAR_PLIST)
 
