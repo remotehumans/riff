@@ -232,7 +232,11 @@ struct PopoverView: View {
                     .padding(.vertical, 4)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
+                    // LazyVStack so only the rows visible in the 180pt viewport
+                    // are built — the session list can hold hundreds of entries
+                    // and an eager VStack lays them all out at once, melting the
+                    // main thread.
+                    LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(daemon.sessions, id: \.key) { session in
                             SessionRow(
                                 sessionKey: session.key,

@@ -74,8 +74,6 @@ final class DaemonConnection: ObservableObject {
         fetchStatus()
     }
 
-    private var statusPollCount = 0
-
     private func fetchStatus() {
         guard !statusRequestInFlight else { return }
         statusRequestInFlight = true
@@ -98,16 +96,6 @@ final class DaemonConnection: ObservableObject {
                 self.updatePublishedValue(&self.currentSession, with: response["current_session"] as? String)
                 self.updatePublishedValue(&self.enabled, with: response["enabled"] as? Bool ?? true)
                 self.updatePublishedValue(&self.speed, with: response["speed"] as? Double ?? 1.0)
-
-                // While the popover is open (faster poll), periodically refresh
-                // config so daemon-side session auto-naming appears without a
-                // file watch. The daemon is the single writer of config.json.
-                if self.pollInterval <= 2.0 {
-                    self.statusPollCount += 1
-                    if self.statusPollCount % 5 == 0 {
-                        self.fetchConfig()
-                    }
-                }
             }
         }
     }
