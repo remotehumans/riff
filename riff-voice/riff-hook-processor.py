@@ -1,5 +1,5 @@
-# ABOUTME: Python processor for the Riff Stop hook - extracts summaries from Claude Code output.
-# ABOUTME: Called by riff-hook.sh with the hook JSON as first argument.
+# ABOUTME: Converts Claude Code and Codex completion payloads into Riff speech requests.
+# ABOUTME: Reads hook JSON from stdin, extracts an audio-friendly summary, and sends it to Riff.
 
 import sys
 import json
@@ -61,6 +61,78 @@ def extract_spoken_text(full_text):
     return None, speak_text
 
 
+def normalise_payload(data):
+    """Normalise Claude Code and Codex completion events.
+
+    Claude Code uses snake_case keys and emits JSON on stdin. Codex's notify
+    command uses hyphenated keys and appends the JSON as one command argument;
+    riff-codex-notify.sh converts that argument back to stdin before calling us.
+    """
+    is_codex = data.get("type") == "agent-turn-complete" or any(
+        key in data for key in ("last-assistant-message", "thread-id", "turn-id")
+    )
+
+    # Codex may add more notification event types later. Only completed agent
+    # turns contain a response that Riff should narrate.
+    if is_codex and data.get("type") not in (None, "agent-turn-complete"):
+        return None
+
+    if is_codex:
+        full_text = data.get("last-assistant-message", "")
+        session_id = data.get("thread-id", "")
+        source = "codex"
+    else:
+        full_text = data.get("last_assistant_message", "")
+        session_id = data.get("session_id", "")
+        source = "claude"
+
+    cwd = data.get("cwd", os.getcwd())
+    if session_id:
+        short_id = str(session_id)[:8]
+        session = f"codex-{short_id}" if is_codex else short_id
+    else:
+        folder = os.path.basename(cwd) if cwd else "unknown"
+        session = f"codex-{folder}" if is_codex else folder
+
+    return {
+        "source": source,
+        "full_text": full_text,
+        "cwd": cwd,
+        "session_id": session_id,
+        "session": session,
+    }
+
+
+def build_speech_request(data):
+    """Build daemon messages from a hook payload without performing I/O."""
+    payload = normalise_payload(data)
+    if not payload or not payload["full_text"]:
+        return None
+
+    label, speak_text = extract_spoken_text(payload["full_text"])
+    if not speak_text:
+        return None
+
+    # Codex does not conventionally emit Riff's SUMMARY label. Give its tasks a
+    # stable, recognisable name while retaining a unique voice per thread.
+    if not label and payload["source"] == "codex":
+        folder = os.path.basename(payload["cwd"]) if payload["cwd"] else "Task"
+        folder = re.sub(r"[-_]+", " ", folder).strip()
+        label = f"Codex {folder}" if folder else "Codex Task"
+
+    return {
+        "label": label,
+        "speak": {
+            "type": "speak",
+            "text": speak_text,
+            "session": payload["session"],
+            "full_text": payload["full_text"],
+        },
+        "source": payload["source"],
+        "session_id": payload["session_id"],
+    }
+
+
 def send_to_daemon(message):
     """Send a JSON message to the Riff daemon socket."""
     try:
@@ -84,40 +156,26 @@ def main():
             return
 
         data = json.loads(raw)
-        full_text = data.get("last_assistant_message", "")
-        cwd = data.get("cwd", os.getcwd())
-        session_id = data.get("session_id", "")
-
-        # Use session_id as unique key, fall back to folder name
-        if session_id:
-            session = session_id[:8]
-        else:
-            session = os.path.basename(cwd) if cwd else "unknown"
-
-        log(f"session={session}, session_id={session_id}, text length={len(full_text)}")
-
-        if not full_text:
-            log("no assistant message, exiting")
+        request = build_speech_request(data)
+        if not request:
+            log("no narratable assistant message, exiting")
             return
 
-        label, speak_text = extract_spoken_text(full_text)
+        speak = request["speak"]
+        label = request["label"]
+        log(
+            f"source={request['source']}, session={speak['session']}, "
+            f"session_id={request['session_id']}, text length={len(speak['full_text'])}"
+        )
 
         # Auto-name the session if a label was provided
         if label:
-            send_to_daemon({"type": "set_name", "session": session, "name": label})
+            send_to_daemon({"type": "set_name", "session": speak["session"], "name": label})
 
-        log(f"label={label}, speak_len={len(speak_text)}")
-
-        if not speak_text:
-            return
+        log(f"label={label}, speak_len={len(speak['text'])}")
 
         # Send to Riff daemon
-        resp = send_to_daemon({
-            "type": "speak",
-            "text": speak_text,
-            "session": session,
-            "full_text": full_text,
-        })
+        resp = send_to_daemon(speak)
         log(f"sent to daemon, response={resp}")
 
     except Exception as e:

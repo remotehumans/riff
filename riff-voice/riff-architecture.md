@@ -16,7 +16,7 @@ graph TB
     end
 
     subgraph Riff["Riff Voice Narrator"]
-        Hook["Stop Hook<br/><i>Extracts summary from<br/>agent responses</i>"]
+        Hook["Completion Adapters<br/><i>Claude Stop + Codex notify<br/>extract agent responses</i>"]
         Socket["Unix Socket<br/>/tmp/riff.sock"]
         Queue["FIFO Queue<br/><i>One voice at a time</i>"]
         Namer["Session Namer<br/><i>Auto-generates friendly<br/>names from first message</i>"]
@@ -31,7 +31,7 @@ graph TB
 
     CC1 -->|"on finish"| Hook
     CC2 -->|"on finish"| Hook
-    Codex -.->|"Phase 2"| Socket
+    Codex -->|"on finish"| Hook
     Other -.->|"riff-say"| Socket
 
     Hook -->|"summary + session ID"| Socket

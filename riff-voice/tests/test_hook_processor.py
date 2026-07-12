@@ -1,4 +1,4 @@
-# ABOUTME: Tests for the Claude Code Stop hook's summary-extraction logic.
+# ABOUTME: Tests summary extraction and payload normalisation for Claude Code and Codex.
 # ABOUTME: Loads riff-hook-processor.py by path (it is a standalone script, not a package module).
 
 import importlib.util
@@ -30,3 +30,41 @@ def test_markdown_fallback_strips_formatting_and_caps_length():
     assert "`" not in text
     assert "](" not in text
     assert len(text) <= 400
+
+
+def test_claude_payload_keeps_existing_session_format():
+    request = hook.build_speech_request({
+        "session_id": "12345678-abcd",
+        "cwd": "/tmp/my-project",
+        "last_assistant_message": "SUMMARY [Build Bot]: All tests pass.",
+    })
+
+    assert request["source"] == "claude"
+    assert request["speak"]["session"] == "12345678"
+    assert request["label"] == "Build Bot"
+    assert request["speak"]["text"] == "All tests pass."
+
+
+def test_codex_payload_uses_thread_and_hyphenated_message_keys():
+    request = hook.build_speech_request({
+        "type": "agent-turn-complete",
+        "thread-id": "abcdef12-3456",
+        "turn-id": "turn-1",
+        "cwd": "/tmp/remote-humans-agi",
+        "last-assistant-message": "Done. Codex is now connected to Riff.",
+    })
+
+    assert request["source"] == "codex"
+    assert request["speak"]["session"] == "codex-abcdef12"
+    assert request["label"] == "Codex remote humans agi"
+    assert request["speak"]["text"] == "Done. Codex is now connected to Riff."
+
+
+def test_codex_ignores_non_completion_notifications():
+    request = hook.build_speech_request({
+        "type": "approval-requested",
+        "thread-id": "abcdef12-3456",
+        "last-assistant-message": "This should not be spoken.",
+    })
+
+    assert request is None
