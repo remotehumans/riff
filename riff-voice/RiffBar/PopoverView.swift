@@ -5,6 +5,7 @@ import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var daemon: DaemonConnection
+    @ObservedObject var ring: RingBridgeController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -29,6 +30,13 @@ struct PopoverView: View {
             // Audio device selectors
             audioDevicesSection
 
+            if ring.isAvailable {
+                Divider()
+                    .padding(.vertical, 8)
+
+                ringSection
+            }
+
             Divider()
                 .padding(.vertical, 8)
 
@@ -42,8 +50,48 @@ struct PopoverView: View {
             footerSection
         }
         .padding(16)
-        .frame(width: 420, height: 620, alignment: .top)
+        .frame(width: 420, height: ring.isAvailable ? 690 : 620, alignment: .top)
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Ring
+
+    private var ringSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Ring")
+                .font(.system(.caption, weight: .semibold))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+
+            Toggle(isOn: Binding(
+                get: { ring.isEnabled },
+                set: { ring.setEnabled($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ring controls")
+                        .font(.subheadline)
+
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(ringStatusColor)
+                            .frame(width: 6, height: 6)
+
+                        Text(ring.statusText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+            .disabled(ring.isChanging)
+        }
+    }
+
+    private var ringStatusColor: Color {
+        if ring.errorMessage != nil { return .red }
+        if ring.isChanging { return .orange }
+        if !ring.isEnabled { return .secondary }
+        return ring.isConnected ? .green : .orange
     }
 
     // MARK: - Header

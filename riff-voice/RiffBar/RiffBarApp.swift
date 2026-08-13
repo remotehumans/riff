@@ -6,12 +6,19 @@ import SwiftUI
 @main
 struct RiffBarApp: App {
     @StateObject private var daemon = DaemonConnection()
+    @StateObject private var ring = RingBridgeController()
 
     var body: some Scene {
         MenuBarExtra {
-            PopoverView(daemon: daemon)
-                .onAppear { daemon.popoverOpened() }
-                .onDisappear { daemon.popoverClosed() }
+            PopoverView(daemon: daemon, ring: ring)
+                .onAppear {
+                    daemon.popoverOpened()
+                    ring.popoverOpened()
+                }
+                .onDisappear {
+                    daemon.popoverClosed()
+                    ring.popoverClosed()
+                }
         } label: {
             Image(systemName: daemon.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
         }

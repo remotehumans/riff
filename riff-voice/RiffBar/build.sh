@@ -13,6 +13,7 @@ swiftc -o RiffBar \
     -target arm64-apple-macosx13.0 \
     RiffBarApp.swift \
     DaemonConnection.swift \
+    RingBridgeController.swift \
     PopoverView.swift \
     SettingsView.swift \
     SessionRow.swift
